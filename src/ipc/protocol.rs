@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{ServerId, Snapshot};
 
-pub const PROTOCOL_VERSION: u32 = 5;
+pub const PROTOCOL_VERSION: u32 = 6;
 
 /// TUI to monitor. Every request acts on something already running; the
 /// TUI confirms with the user first.
@@ -16,8 +16,8 @@ pub enum Request {
     Stop(ServerId),
     /// SIGKILL to every process in the tree, now.
     Kill(ServerId),
-    /// Stop a listener that is not one of the user's servers.
-    KillPort { port: u16, pid: u32 },
+    /// Stream this server's log (or none). Replaces the previous one.
+    Follow(Option<ServerId>),
 }
 
 /// Monitor to TUI.
@@ -25,6 +25,13 @@ pub enum Request {
 pub enum Event {
     /// Full state after every scan, about every two seconds.
     Snapshot(Snapshot),
+    /// Lines from the followed server's log. `reset` starts the view over
+    /// (a new server, or the file was replaced).
+    Logs {
+        id: ServerId,
+        lines: Vec<String>,
+        reset: bool,
+    },
     /// Something the user should read, e.g. the result of a stop.
     Notice(String),
 }

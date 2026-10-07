@@ -2,9 +2,10 @@
 
 A terminal dashboard for the dev servers running on this machine. Paddock
 finds them (lsof plus the process table), groups them by project, shows
-ports, command, folder, uptime, CPU and memory, and stops them when the user
-confirms. It never starts anything. Local only: no network code, no
-telemetry.
+ports, command, folder, uptime, CPU, memory and live logs, and stops them
+when the user confirms. It never starts anything on its own. Logs come from
+`paddock run`, a `script` wrapper the user's shell calls (`paddock init`).
+Local only: no network code, no telemetry.
 
 Design and roadmap: `docs/ARCHITECTURE.md`. Read it before changing module
 boundaries.
@@ -19,6 +20,8 @@ nix, clap, serde and toml. macOS first, Linux where lsof exists.
 ```bash
 cargo run                                   # the dashboard
 cargo run -- list                           # running servers, printed once
+cargo run -- run npm run dev                # run a command with its log captured
+cargo run -- init zsh                       # shell code that captures dev servers
 cargo run -- --demo                         # made-up servers
 cargo run -- --no-splash --theme nord       # one-off flags; --config-path prints the config file
 cargo install --path . --locked             # install so `paddock` works anywhere
@@ -54,10 +57,11 @@ pure and unit tested with made-up process tables), the TUI shows them, and
 stop, kill and free-port work through `monitor::actions`, which re-checks
 every pid before signalling it. `tests/monitor.rs` runs real processes.
 
-Paddock never starts processes and has no log pane. Do not add either
-without discussing it with the user first: starting projects was removed
-on purpose (it started duplicate servers), and logs of servers Paddock did
-not start cannot be read.
+Paddock never starts processes on its own. Do not add that without
+discussing it with the user: starting projects was removed on purpose (it
+started duplicate servers). Logs exist only for servers started through
+`paddock run` (`capture.rs`); a running process's output cannot be read
+afterwards, so do not try.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in

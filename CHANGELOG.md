@@ -16,9 +16,17 @@ All notable changes to Paddock are listed here. The format follows
 - Actions: open in the browser, copy URL or command, stop (SIGTERM, then
   SIGKILL after 5 s), kill, free a port held by another program. Each is
   confirmed, and every pid is re-checked by start time before a signal.
+- Live logs: `paddock run <cmd>` runs a command through the system's
+  `script` tool, so the terminal works as before and a copy of the output
+  goes to a private log file. `eval "$(paddock init zsh)"` in ~/.zshrc does
+  this automatically for dev server commands (npm run dev, yarn dev, npx
+  expo start, cargo run...). The log pane shows colours, follows new lines,
+  and copies a line, a selection or everything.
+- System apps and other users' programs are no longer listed.
 - `paddock list` prints the running servers once.
-- Removed: adding projects, starting and restarting processes, changing
-  ports, moving processes, the log pane and the folder picker.
+- Removed: adding projects, starting and restarting processes from the
+  dashboard, changing ports, moving processes, freeing ports held by other
+  programs, and the folder picker.
 - Splash with Paddy the pony, eight themes, settings popup, rebindable
   keys.
 - Repository set up: architecture doc, contributor rules, agent skills,

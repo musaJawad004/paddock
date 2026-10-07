@@ -1,6 +1,7 @@
 //! Made-up servers for `paddock --demo`: the same `ipc` protocol as the
 //! monitor, with nothing real behind it. Stop and kill change the fake
-//! data; nothing on the machine is touched.
+//! data, followed servers stream fake logs; nothing on the machine is
+//! touched. One server has no log, to show what that looks like.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -13,7 +14,7 @@ use crate::model::{
     ListeningPort, Project, ResourceUsage, Server, ServerId, ServerState, Snapshot, now_ms,
 };
 
-const TICK: Duration = Duration::from_secs(1);
+const TICK: Duration = Duration::from_millis(500);
 const STOP_TIME: Duration = Duration::from_millis(1200);
 
 /// Runs until the TUI hangs up.
@@ -26,10 +27,7 @@ pub async fn run(mut server: ServerEnd) {
                 Some(request) => demo.handle(request),
                 None => return,
             },
-            _ = tick.tick() => {
-                demo.tick(Instant::now());
-                vec![Event::Snapshot(demo.snapshot())]
-            }
+            _ = tick.tick() => demo.tick(Instant::now()),
         };
         for event in events {
             if server.events.send(event).await.is_err() {
@@ -41,8 +39,8 @@ pub async fn run(mut server: ServerEnd) {
 
 struct Demo {
     projects: Vec<Project>,
-    foreign: Vec<ListeningPort>,
     stopping: Vec<(ServerId, Instant)>,
+    following: Option<ServerId>,
     ticks: u32,
 }
 
@@ -57,6 +55,7 @@ fn server(
     folder: &str,
     ports: &[u16],
     processes: usize,
+    log: bool,
 ) -> Server {
     let started = now_ms() / 1000 - 60 * (3 + u64::from(pid % 40));
     Server {
@@ -68,6 +67,7 @@ fn server(
         processes,
         usage: usage(pid, 0),
         state: ServerState::Running,
+        log: log.then(|| PathBuf::from(format!("/demo/{pid}.log"))),
     }
 }
 
@@ -90,6 +90,16 @@ fn usage(pid: u32, ticks: u32) -> ResourceUsage {
     }
 }
 
+/// Fake output, by server name.
+fn script(name: &str) -> &'static [&'static str] {
+    match name {
+        "start" => EXPO,
+        "dev" => NEXT,
+        "api" => API,
+        _ => &[],
+    }
+}
+
 impl Demo {
     fn new() -> Self {
         Self {
@@ -99,11 +109,12 @@ impl Demo {
                     "rust",
                     vec![server(
                         52210,
-                        "api",
-                        "cargo run --bin api",
+                        "worker",
+                        "cargo run --bin worker",
                         "billing",
                         &[8080],
                         2,
+                        false,
                     )],
                 ),
                 project(
@@ -112,17 +123,26 @@ impl Demo {
                     vec![server(
                         48120,
                         "start",
-                        "yarn expo start",
+                        "npx expo start",
                         "mobile-app",
                         &[8081],
                         6,
+                        true,
                     )],
                 ),
                 project(
                     "storefront",
                     "node",
                     vec![
-                        server(41000, "dev", "yarn next dev", "storefront", &[3000], 5),
+                        server(
+                            41000,
+                            "dev",
+                            "yarn next dev",
+                            "storefront",
+                            &[3000],
+                            5,
+                            true,
+                        ),
                         server(
                             41137,
                             "api",
@@ -130,39 +150,22 @@ impl Demo {
                             "storefront",
                             &[4000],
                             3,
+                            true,
                         ),
                     ],
                 ),
-                project(
-                    "verbatim",
-                    "node",
-                    vec![server(
-                        84873,
-                        "dev",
-                        "npm run dev",
-                        "verbatim",
-                        &[5273, 24678],
-                        4,
-                    )],
-                ),
-            ],
-            foreign: vec![
-                ListeningPort {
-                    port: 5000,
-                    pid: 812,
-                    command: "ControlCenter".into(),
-                    owner: None,
-                },
-                ListeningPort {
-                    port: 7000,
-                    pid: 812,
-                    command: "ControlCenter".into(),
-                    owner: None,
-                },
             ],
             stopping: Vec::new(),
+            following: None,
             ticks: 0,
         }
+    }
+
+    fn server(&self, id: ServerId) -> Option<&Server> {
+        self.projects
+            .iter()
+            .flat_map(|p| &p.servers)
+            .find(|s| s.id == id)
     }
 
     fn servers_mut(&mut self) -> impl Iterator<Item = &mut Server> {
@@ -179,10 +182,9 @@ impl Demo {
                     port: *port,
                     pid: s.id.pid,
                     command: "node".into(),
-                    owner: Some(s.id),
+                    owner: s.id,
                 })
             })
-            .chain(self.foreign.iter().cloned())
             .collect();
         ports.sort_by_key(|p| p.port);
         Snapshot {
@@ -193,6 +195,26 @@ impl Demo {
 
     fn handle(&mut self, request: Request) -> Vec<Event> {
         let notice = match request {
+            Request::Follow(id) => {
+                self.following = id;
+                let Some(server) = id
+                    .and_then(|id| self.server(id))
+                    .filter(|s| s.log.is_some())
+                else {
+                    return Vec::new();
+                };
+                let lines = script(&server.name)
+                    .iter()
+                    .cycle()
+                    .take(40)
+                    .map(|l| l.to_string())
+                    .collect();
+                return vec![Event::Logs {
+                    id: server.id,
+                    lines,
+                    reset: true,
+                }];
+            }
             Request::Stop(id) => {
                 let Some(server) = self.servers_mut().find(|s| s.id == id) else {
                     return vec![Event::Notice("It has already stopped.".into())];
@@ -202,18 +224,9 @@ impl Demo {
                 "Asked the server to stop. It gets 5 seconds before it is killed.".to_owned()
             }
             Request::Kill(id) => {
-                let processes = self
-                    .projects
-                    .iter()
-                    .flat_map(|p| &p.servers)
-                    .find(|s| s.id == id)
-                    .map_or(0, |s| s.processes);
+                let processes = self.server(id).map_or(0, |s| s.processes);
                 self.remove(id);
                 format!("Killed {processes} processes.")
-            }
-            Request::KillPort { port, pid } => {
-                self.foreign.retain(|f| !(f.port == port && f.pid == pid));
-                format!("Asked the program (pid {pid}) to quit. Port {port} frees up in a moment.")
             }
         };
         vec![Event::Snapshot(self.snapshot()), Event::Notice(notice)]
@@ -227,7 +240,7 @@ impl Demo {
         self.stopping.retain(|(s, _)| *s != id);
     }
 
-    fn tick(&mut self, now: Instant) {
+    fn tick(&mut self, now: Instant) -> Vec<Event> {
         self.ticks += 1;
         let ticks = self.ticks;
         for server in self.servers_mut() {
@@ -242,8 +255,44 @@ impl Demo {
         for id in due {
             self.remove(id);
         }
+        let mut events = vec![Event::Snapshot(self.snapshot())];
+        if let Some(server) = self.following.and_then(|id| self.server(id))
+            && server.log.is_some()
+        {
+            let lines = script(&server.name);
+            if !lines.is_empty() {
+                events.push(Event::Logs {
+                    id: server.id,
+                    lines: vec![lines[ticks as usize % lines.len()].to_owned()],
+                    reset: false,
+                });
+            }
+        }
+        events
     }
 }
+
+const NEXT: &[&str] = &[
+    " \u{1b}[37m○\u{1b}[39m Compiling /products ...",
+    " \u{1b}[32m✓\u{1b}[39m Compiled /products in 412ms \u{1b}[2m(1023 modules)\u{1b}[22m",
+    " GET /products \u{1b}[32m200\u{1b}[39m in 486ms",
+    " GET /api/cart \u{1b}[32m200\u{1b}[39m in 31ms",
+    " \u{1b}[33m⚠\u{1b}[39m Fast Refresh had to perform a full reload",
+    " GET /checkout \u{1b}[31m500\u{1b}[39m in 211ms",
+];
+const API: &[&str] = &[
+    "[api] GET /health 200 2ms",
+    "[api] POST /orders 201 18ms",
+    "[api] WARN slow query: SELECT * FROM line_items (1203ms)",
+    "[api] Error: connect ECONNREFUSED 127.0.0.1:6379 (redis cache, falling back)",
+    "[api] PATCH /cart/31 200 9ms",
+];
+const EXPO: &[&str] = &[
+    "\u{1b}[32miOS\u{1b}[39m Bundled 812ms index.js \u{1b}[2m(1243 modules)\u{1b}[22m",
+    " \u{1b}[2mLOG\u{1b}[22m  [cart] item added: sku-1042",
+    " \u{1b}[33mWARN\u{1b}[39m  VirtualizedList: You have a large list that is slow to update",
+    " \u{1b}[2mLOG\u{1b}[22m  [nav] Home → ProductDetail",
+];
 
 #[cfg(test)]
 mod tests {
@@ -273,12 +322,22 @@ mod tests {
     }
 
     #[test]
-    fn killing_a_foreign_port_frees_it() {
+    fn following_a_server_with_a_log_streams_lines() {
         let mut demo = Demo::new();
-        demo.handle(Request::KillPort {
-            port: 5000,
-            pid: 812,
-        });
-        assert!(demo.snapshot().ports.iter().all(|p| p.port != 5000));
+        let id = demo.projects[2].servers[0].id;
+        let events = demo.handle(Request::Follow(Some(id)));
+        assert!(matches!(&events[..], [Event::Logs { reset: true, .. }]));
+        let more = demo.tick(Instant::now());
+        assert!(
+            more.iter()
+                .any(|e| matches!(e, Event::Logs { reset: false, .. }))
+        );
+    }
+
+    #[test]
+    fn following_a_server_without_a_log_sends_nothing() {
+        let mut demo = Demo::new();
+        let id = first(&demo);
+        assert!(demo.handle(Request::Follow(Some(id))).is_empty());
     }
 }

@@ -11,7 +11,6 @@
 use nix::sys::signal::{self, Signal};
 use nix::unistd::Pid;
 
-use super::ports;
 use super::servers::ProcessTable;
 use super::stats::Stats;
 use crate::model::ServerId;
@@ -54,27 +53,6 @@ pub fn is_running(id: ServerId) -> bool {
     let mut stats = Stats::new();
     stats.refresh();
     stats.start_time(id.pid) == Some(id.started)
-}
-
-/// SIGTERM to a listener that is not one of the user's servers, after a
-/// fresh lsof shows it still holds the port.
-pub fn stop_listener(port: u16, pid: u32) -> Result<String, String> {
-    let listeners = ports::scan()?;
-    let Some(listener) = listeners.iter().find(|l| l.port == port && l.pid == pid) else {
-        return Err(format!("pid {pid} no longer listens on port {port}"));
-    };
-    let mut stats = Stats::new();
-    stats.refresh();
-    if pid <= 1 || stats.own_line().contains(&pid) {
-        return Err(format!("refusing to stop pid {pid}"));
-    }
-    send(pid, Signal::SIGTERM).map_err(|err| match err {
-        nix::errno::Errno::EPERM => {
-            format!("not allowed to stop pid {pid}: it belongs to another user")
-        }
-        other => format!("could not stop pid {pid}: {other}"),
-    })?;
-    Ok(listener.command.clone())
 }
 
 pub fn send(pid: u32, signal: Signal) -> nix::Result<()> {

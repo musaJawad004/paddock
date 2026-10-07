@@ -57,11 +57,11 @@ fn canonical(path: &Path) -> PathBuf {
 }
 
 /// Scans until a server holds `port`, or gives up after five seconds.
-fn find(home: &Path, port: u16) -> Option<(String, Server)> {
+fn find(home: &Path, logs_dir: Option<&Path>, port: u16) -> Option<(String, Server)> {
     let mut stats = Stats::new();
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        let snapshot = scan(&mut stats, &canonical(home), &HashSet::new()).unwrap();
+        let snapshot = scan(&mut stats, &canonical(home), logs_dir, &HashSet::new()).unwrap();
         for project in &snapshot.projects {
             if let Some(server) = project.servers.iter().find(|s| s.ports.contains(&port)) {
                 return Some((project.name.clone(), server.clone()));
@@ -107,7 +107,7 @@ fn a_server_started_elsewhere_is_found_and_grouped_by_project() {
     let pid = child.id();
     let _guard = Spawned(vec![child]);
 
-    let (project, server) = find(home.path(), port).expect("server not found");
+    let (project, server) = find(home.path(), None, port).expect("server not found");
     assert_eq!(project, "shop");
     assert_eq!(server.id.pid, pid);
     assert_eq!(server.cwd, canonical(&dir));
@@ -136,7 +136,7 @@ fn stop_ends_the_whole_tree() {
     let parent_pid = parent.id();
     let mut guard = Spawned(vec![parent]);
 
-    let (_, server) = find(home.path(), port).expect("server not found");
+    let (_, server) = find(home.path(), None, port).expect("server not found");
     assert_eq!(
         server.id.pid, parent_pid,
         "the parent is the top of the server"
@@ -181,4 +181,89 @@ fn paddock_never_signals_its_own_process() {
     let result = actions::signal_server(ServerId { pid: me, started }, Signal::SIGCONT);
     let err = result.expect_err("own process must be protected");
     assert!(err.contains("Paddock itself"), "{err}");
+}
+
+#[test]
+fn paddock_run_captures_output_and_the_monitor_links_the_log() {
+    if lsof_missing() {
+        return;
+    }
+    let (home, dir) = project();
+    let state = home.path().join("state");
+    let port = free_port();
+    let server = format!(
+        "print('hello from the server', flush=True); {}",
+        listen_script(port)
+    );
+    let child = Command::new(env!("CARGO_BIN_EXE_paddock"))
+        .args(["run", "--always", "--", "python3", "-c", &server])
+        .current_dir(&dir)
+        .env("XDG_STATE_HOME", &state)
+        // macOS script needs a terminal or nothing on stdin, not a socket.
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let _guard = Spawned(vec![child]);
+
+    let raw_dir = state.join("paddock/logs");
+    for _ in 0..50 {
+        if raw_dir.exists() {
+            break;
+        }
+        sleep(Duration::from_millis(50));
+    }
+    let logs_dir = canonical(&raw_dir);
+    let mut found = None;
+    for _ in 0..30 {
+        if let Some(hit) = find(home.path(), Some(&logs_dir), port).filter(|(_, s)| s.log.is_some())
+        {
+            found = Some(hit);
+            break;
+        }
+        sleep(Duration::from_millis(100));
+    }
+    let (_, server) = found.expect("server with a log not found");
+    let log = server.log.expect("log path");
+    assert!(log.starts_with(&logs_dir));
+    let text = fs::read_to_string(&log).unwrap();
+    assert!(text.contains("hello from the server"), "{text:?}");
+
+    let mode = fs::metadata(&logs_dir).unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(
+        mode.permissions().mode() & 0o777,
+        0o700,
+        "only the user can read logs"
+    );
+}
+
+#[test]
+fn paddock_run_auto_leaves_quick_commands_alone() {
+    let home = tempfile::tempdir().unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_paddock"))
+        .args(["run", "--auto", "--always", "--", "echo", "plain"])
+        .env("XDG_STATE_HOME", home.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    assert_eq!(String::from_utf8_lossy(&output.stdout), "plain\n");
+    assert!(
+        !home.path().join("paddock/logs").exists(),
+        "no log for a non-server command"
+    );
+}
+
+#[test]
+fn paddock_run_keeps_the_exit_code() {
+    let home = tempfile::tempdir().unwrap();
+    let status = Command::new(env!("CARGO_BIN_EXE_paddock"))
+        .args(["run", "--always", "--", "sh", "-c", "exit 7"])
+        .env("XDG_STATE_HOME", home.path())
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    assert_eq!(status.code(), Some(7));
 }

@@ -54,20 +54,28 @@ pub fn render_footer(app: &App, area: Rect, buf: &mut Buffer) {
     let hints: Vec<(String, &str)> = match app.focus {
         Focus::Servers => vec![
             (moves, "move"),
+            ("tab".into(), "logs"),
             (first(Action::Open), "open"),
-            (first(Action::CopyUrl), "copy URL"),
+            (first(Action::Copy), "copy URL"),
             (first(Action::Stop), "stop"),
             (first(Action::Kill), "kill"),
-            (first(Action::NextPane), "ports"),
             (first(Action::Settings), "settings"),
             (first(Action::Help), "help"),
             (first(Action::Quit), "quit"),
+        ],
+        Focus::Logs => vec![
+            (moves, "line"),
+            (first(Action::Mark), "select"),
+            (first(Action::Copy), "copy"),
+            (first(Action::CopyAll), "copy all"),
+            (first(Action::Follow), "newest"),
+            ("esc".into(), "back"),
         ],
         Focus::Ports => vec![
             (moves, "move"),
             ("enter".into(), "go to server"),
             (first(Action::Open), "open"),
-            (first(Action::Kill), "free port"),
+            (first(Action::Stop), "stop"),
             ("esc".into(), "back"),
         ],
     };

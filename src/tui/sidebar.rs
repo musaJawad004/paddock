@@ -1,7 +1,7 @@
 //! Left column. Top: every project with a dev server running, and its
 //! servers with status (● running, ◐ stopping), ports, CPU and memory.
-//! Bottom: listening ports; yellow ones belong to other programs. The
-//! focused pane gets the accent border.
+//! Bottom: the ports those servers listen on. The focused pane gets the
+//! accent border.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -107,24 +107,17 @@ pub fn render_ports(app: &App, area: Rect, buf: &mut Buffer) {
         .map(|port| {
             let number = Span::styled(fit(&format!(" :{}", port.port), 8), theme.accent());
             let rest = width.saturating_sub(8);
-            let label = match port.owner {
-                Some(owner) => {
-                    let name = app
-                        .snapshot
-                        .projects
-                        .iter()
-                        .find_map(|p| {
-                            let s = p.servers.iter().find(|s| s.id == owner)?;
-                            Some(format!("{}/{}", p.name, s.name))
-                        })
-                        .unwrap_or_else(|| port.command.clone());
-                    Span::styled(fit(&name, rest), theme.text())
-                }
-                None => Span::styled(
-                    fit(&format!("{} pid {}", port.command, port.pid), rest),
-                    theme.warning(),
-                ),
-            };
+            let owner = port.owner;
+            let name = app
+                .snapshot
+                .projects
+                .iter()
+                .find_map(|p| {
+                    let s = p.servers.iter().find(|s| s.id == owner)?;
+                    Some(format!("{}/{}", p.name, s.name))
+                })
+                .unwrap_or_else(|| port.command.clone());
+            let label = Span::styled(fit(&name, rest), theme.text());
             ListItem::new(Line::from(vec![number, label]))
         })
         .collect();

@@ -54,7 +54,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     lines.push(Line::raw(""));
     lines.push(Line::styled(
         format!(
-            " Data: {}. Yellow ports belong to other programs.",
+            " Data: {}. Logs show for servers started with paddock run.",
             app.source
         ),
         theme.dim(),

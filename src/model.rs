@@ -49,6 +49,8 @@ pub struct Server {
     /// Summed over the whole tree.
     pub usage: ResourceUsage,
     pub state: ServerState,
+    /// The log file, when it was started through `paddock run`.
+    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -65,9 +67,7 @@ pub struct ListeningPort {
     pub port: u16,
     pub pid: u32,
     pub command: String,
-    /// The server it belongs to, `None` for other programs (system apps,
-    /// other users).
-    pub owner: Option<ServerId>,
+    pub owner: ServerId,
 }
 
 /// Everything the TUI draws, sent after every scan.

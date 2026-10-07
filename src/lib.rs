@@ -6,8 +6,9 @@
 //! ```text
 //! cli ──▶ tui ─────┐   (tui also reads and writes config)
 //!   ├───▶ demo ────┤
-//!   └───▶ monitor ─┼──▶ ipc ──▶ model
-//!          └──▶ project ──────▶ (std only)
+//!   ├───▶ monitor ─┼──▶ ipc ──▶ model
+//!   │      ├──▶ project
+//!   └───▶ capture ◀┘   (paddock run, paddock init; monitor reads its logs dir)
 //! ```
 //!
 //! `tui` and `monitor` never import each other. They only exchange `ipc`
@@ -15,6 +16,7 @@
 //! without touching the TUI. `demo` stands in for `monitor` with made-up
 //! data.
 
+pub mod capture;
 pub mod cli;
 pub mod config;
 pub mod demo;

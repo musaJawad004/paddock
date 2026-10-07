@@ -4,9 +4,9 @@ Every dev server on this machine, in one place.
 
 Paddock is a terminal dashboard. It finds the dev servers you started in any
 terminal, editor or agent, groups them by project, and shows what each one
-is: its ports, command, folder, uptime, CPU and memory. From there you can
-open one in the browser, copy its URL or command, stop it, or free a port
-something else is holding.
+is: its ports, command, folder, uptime, CPU, memory and live logs. From
+there you can open one in the browser, copy its URL, command or log lines,
+and stop it.
 
 Paddock never starts anything. It watches, and it stops only what you
 confirm.
@@ -26,14 +26,27 @@ paddock list       # the same, printed once
 paddock --demo     # look around with made-up servers
 ```
 
+To see logs, add this line to `~/.zshrc` once (bash and fish work too):
+
+```bash
+eval "$(paddock init zsh)"
+```
+
+From then on, `npm run dev`, `yarn dev`, `npx expo start`, `cargo run` and
+other dev server commands started in any terminal show their logs in
+Paddock. Your terminal shows the output exactly as before. Other commands
+(`npm install`, `cargo build`) run untouched. To capture a single run
+without the shell line, use `paddock run npm run dev`.
+
 | Key | Does |
 |---|---|
-| `↑` `↓` | pick a server (or a port) |
-| `tab` | switch between servers and ports |
+| `↑` `↓` | pick a server, a log line or a port |
+| `tab` | switch between servers, logs and ports |
 | `o` | open it in the browser |
-| `y` / `Y` | copy its URL / its full command |
+| `y` / `Y` | servers: copy URL / command. Logs: copy line or selection / all |
+| `v` | start a selection in the logs |
 | `x` | stop it: SIGTERM to its whole process tree, SIGKILL after 5 s |
-| `K` | kill it now, or free the selected port |
+| `K` | kill it now |
 | `,` | settings: theme, keys, splash |
 | `?` / `q` | help / quit |
 
@@ -62,16 +75,23 @@ and `esbuild` processes under it count as one server called `dev`. Paddock
 never counts your shell, editor, terminal or a coding agent such as Claude
 Code as part of a server, so stopping a server never stops them.
 
-## What it cannot do
+## How logs work
 
-A server's output goes only to the terminal that started it, and no other
-program can read it. So Paddock shows everything about a server except its
-logs.
+A server's output goes only to the terminal that started it; no other
+program can read it afterwards. So logs come from the start instead:
+`paddock run` (which the shell line calls for you) runs the command through
+the system's `script` tool, which shows everything in your terminal as
+usual and writes a copy to `~/.local/state/paddock/logs`. That folder is
+readable only by you, and logs older than three days are deleted.
+
+A server started before you added the shell line shows everything except
+logs, plus the exact `paddock run` command to restart it with them.
 
 ## Privacy
 
-Paddock reads the process table and runs `lsof`. It has no network code and
-sends no telemetry; the build fails if network code is added.
+Paddock reads the process table, runs `lsof`, and reads its own log files.
+It has no network code and sends no telemetry; the build fails if network
+code is added.
 
 ## License
 

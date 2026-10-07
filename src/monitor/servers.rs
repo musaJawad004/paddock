@@ -14,8 +14,11 @@
 //!    stopping a server can never take those down with it.
 //!    `npm run dev` → `sh -c` → `node vite` is one server named "dev".
 //!
-//! Everything else on a dev-looking port (system apps, other users) is a
-//! foreign port, shown so it can be freed.
+//! Everything else (system apps, other users' programs, anything outside
+//! the home folder) is not shown at all.
+//!
+//! A server started through `paddock run` sits under a `script` process
+//! whose arguments name its log file; that file becomes `Server::log`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -39,9 +42,6 @@ pub trait ProcessTable {
     fn tree(&self, root: u32) -> Vec<u32>;
     fn usage(&self, pids: &[u32]) -> ResourceUsage;
 }
-
-/// Foreign listeners are shown only on ports dev servers tend to use.
-const DEV_PORTS: std::ops::RangeInclusive<u16> = 1024..=9999;
 
 const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"];
 
@@ -115,13 +115,17 @@ const NODE_RUNNER_SCRIPTS: &[(&str, &str)] = &[
     ("tsx", "tsx"),
 ];
 
-pub fn collect(
-    listeners: &[Listener],
-    table: &impl ProcessTable,
-    home: &Path,
-    stopping: &HashSet<ServerId>,
-    protected: &HashSet<u32>,
-) -> Snapshot {
+pub struct Context<'a> {
+    pub home: &'a Path,
+    /// Where `paddock run` writes logs.
+    pub logs_dir: Option<&'a Path>,
+    pub stopping: &'a HashSet<ServerId>,
+    /// Paddock and the processes above it.
+    pub protected: &'a HashSet<u32>,
+}
+
+pub fn collect(listeners: &[Listener], table: &impl ProcessTable, cx: &Context) -> Snapshot {
+    let (home, protected) = (cx.home, cx.protected);
     let mut servers: HashMap<ServerId, Server> = HashMap::new();
     let mut project_of: HashMap<ServerId, PathBuf> = HashMap::new();
     let mut ports = Vec::new();
@@ -144,26 +148,25 @@ pub fn collect(
                     ports: Vec::new(),
                     processes: tree.len(),
                     usage: table.usage(&tree),
-                    state: if stopping.contains(id) {
+                    state: if cx.stopping.contains(id) {
                         ServerState::Stopping
                     } else {
                         ServerState::Running
                     },
+                    log: log_of(id.pid, table, cx.logs_dir),
                 }
             });
             if !entry.ports.contains(&listener.port) {
                 entry.ports.push(listener.port);
             }
             project_of.insert(*id, root_dir.clone());
-        } else if !DEV_PORTS.contains(&listener.port) {
-            continue;
+            ports.push(ListeningPort {
+                port: listener.port,
+                pid: listener.pid,
+                command: listener.command.clone(),
+                owner: *id,
+            });
         }
-        ports.push(ListeningPort {
-            port: listener.port,
-            pid: listener.pid,
-            command: listener.command.clone(),
-            owner: owner.map(|(id, _, _)| id),
-        });
     }
 
     let mut grouped: BTreeMap<String, Project> = BTreeMap::new();
@@ -189,10 +192,8 @@ pub fn collect(
     projects.sort_by_key(|p| p.name.to_lowercase());
     // One row per port and server: a reloading server can have several
     // processes on the same port.
-    ports.sort_by_key(|p| (p.port, p.owner.map(|o| o.pid), p.pid));
-    ports.dedup_by(|a, b| {
-        a.port == b.port && (a.pid == b.pid || (a.owner.is_some() && a.owner == b.owner))
-    });
+    ports.sort_by_key(|p| (p.port, p.owner.pid, p.pid));
+    ports.dedup_by(|a, b| a.port == b.port && a.owner == b.owner);
 
     Snapshot { projects, ports }
 }
@@ -241,6 +242,20 @@ fn server_of(
         .unwrap_or(top);
     let started = table.start_time(top)?;
     Some((ServerId { pid: top, started }, root_dir, named_by))
+}
+
+/// The log file named in the arguments of a `script` parent, when the
+/// server was started through `paddock run`.
+fn log_of(top: u32, table: &impl ProcessTable, logs_dir: Option<&Path>) -> Option<PathBuf> {
+    let logs_dir = logs_dir?;
+    let parent = table.parent(top)?;
+    let cmd = table.cmd(parent);
+    if cmd.first().map(|c| base(c)) != Some("script") {
+        return None;
+    }
+    cmd.iter()
+        .map(PathBuf::from)
+        .find(|arg| arg.starts_with(logs_dir) && arg.extension().is_some_and(|e| e == "log"))
 }
 
 fn is_shell_program(cmd: &[String]) -> bool {
@@ -499,13 +514,14 @@ mod tests {
     }
 
     fn snapshot(listeners: &[Listener], table: &Table) -> Snapshot {
-        collect(
-            listeners,
-            table,
-            Path::new("/home/me"),
-            &HashSet::new(),
-            &HashSet::new(),
-        )
+        let (stopping, protected) = (HashSet::new(), HashSet::new());
+        let cx = Context {
+            home: Path::new("/home/me"),
+            logs_dir: Some(Path::new("/home/me/.local/state/paddock/logs")),
+            stopping: &stopping,
+            protected: &protected,
+        };
+        collect(listeners, table, &cx)
     }
 
     #[test]
@@ -530,7 +546,8 @@ mod tests {
         assert_eq!(server.command, "npm run dev");
         assert_eq!(server.ports, vec![5273]);
         assert_eq!(server.processes, 4, "npm, sh, node and esbuild");
-        assert_eq!(snap.ports[0].owner, Some(server.id));
+        assert_eq!(snap.ports[0].owner, server.id);
+        assert_eq!(server.log, None);
     }
 
     #[test]
@@ -558,41 +575,61 @@ mod tests {
     }
 
     #[test]
-    fn system_apps_are_foreign_and_only_on_dev_ports() {
-        let table = terminal_with_npm()
-            .foreign(812, "ControlCenter")
-            .foreign(90, "rapportd");
-        let snap = snapshot(
-            &[
-                listener(5000, 812, "ControlCenter"),
-                listener(49152, 90, "rapportd"),
-            ],
-            &table,
-        );
+    fn system_apps_are_not_shown() {
+        let table = terminal_with_npm().foreign(812, "ControlCenter");
+        let snap = snapshot(&[listener(5000, 812, "ControlCenter")], &table);
         assert!(snap.projects.is_empty());
-        assert_eq!(snap.ports.len(), 1);
-        assert_eq!((snap.ports[0].port, snap.ports[0].owner), (5000, None));
+        assert!(snap.ports.is_empty());
     }
 
     #[test]
-    fn processes_outside_home_are_not_servers() {
+    fn processes_outside_home_are_not_shown() {
         let table = Table::default().add(10, 1, "/opt/tool", "tool serve");
         let snap = snapshot(&[listener(8000, 10, "tool")], &table);
         assert!(snap.projects.is_empty());
-        assert_eq!(snap.ports[0].owner, None);
+        assert!(snap.ports.is_empty());
+    }
+
+    #[test]
+    fn a_server_started_through_paddock_run_has_its_log() {
+        let table = Table::default()
+            .add(200, 1, "/home/me/shop", "-zsh")
+            .add(
+                300,
+                200,
+                "/home/me/shop",
+                "script -q -F /home/me/.local/state/paddock/logs/1-300-npm.log npm run dev",
+            )
+            .add(400, 300, "/home/me/shop", "npm run dev")
+            .add(
+                500,
+                400,
+                "/home/me/shop",
+                "node /home/me/shop/node_modules/.bin/vite",
+            );
+        let snap = snapshot(&[listener(5173, 500, "node")], &table);
+        let server = snap.servers().next().expect("server");
+        assert_eq!(server.id.pid, 400, "script is not part of the server");
+        assert_eq!(
+            server.log.as_deref(),
+            Some(Path::new(
+                "/home/me/.local/state/paddock/logs/1-300-npm.log"
+            ))
+        );
     }
 
     #[test]
     fn protected_pids_are_never_part_of_a_server() {
         let table = terminal_with_npm();
         let protected: HashSet<u32> = [300].into();
-        let snap = collect(
-            &[listener(5273, 500, "node")],
-            &table,
-            Path::new("/home/me"),
-            &HashSet::new(),
-            &protected,
-        );
+        let none = HashSet::new();
+        let cx = Context {
+            home: Path::new("/home/me"),
+            logs_dir: None,
+            stopping: &none,
+            protected: &protected,
+        };
+        let snap = collect(&[listener(5273, 500, "node")], &table, &cx);
         let server = snap.servers().next().expect("server");
         assert_ne!(server.id.pid, 300, "the walk stops below a protected pid");
         assert!(
