@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+.DS_Store
+.env
+.env.*
+.idea/
+.vscode/
+*.swp
+# local brainstorming and plan-execution scratch from workflow skills
+.superpowers/
