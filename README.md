@@ -7,8 +7,21 @@ projects, works out how to run them, and lets you start, stop and watch them
 from a single TUI. Close it and your servers keep running. Open it again and
 they are still there.
 
-> Early development. Nothing to install yet. The plan is in
+> Early development. The dashboard runs on demo data for now: nothing is
+> started on your machine yet. The plan is in
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Try it
+
+Needs Rust 1.95 or newer.
+
+```bash
+cargo install --git https://github.com/musaJawad004/paddock --locked
+paddock
+```
+
+Use `↑↓` to pick a process, `s` `x` `r` to start, stop and restart it, `?`
+for every key, and `q` to quit.
 
 ## What it will do
 

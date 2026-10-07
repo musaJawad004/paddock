@@ -47,6 +47,7 @@ src/
   cli.rs              clap commands: paddock, add, remove, list, up, down, daemon
   model.rs            shared types: Project, ProcessSpec, ProcessState, ListeningPort
   config.rs           global config and paddock.toml
+  demo.rs             fake backend speaking ipc, until the daemon runs real projects
   detect/             read-only project detection
     mod.rs              runs every detector and merges results
     node.rs             package.json, package manager, workspaces
@@ -72,6 +73,7 @@ src/
     sidebar.rs          projects, processes, ports
     logs_view.rs        log pane, search, attach
     palette.rs          quick jump and rare commands
+    help.rs             the ? popup, built from the key table
     status_bar.rs       key hints, connection state, errors
 tests/
   fixtures/           fake projects for the detectors (read, never run)
@@ -84,6 +86,7 @@ Dependency rules:
 
 ```
 cli ──▶ tui ─────┐
+  ├───▶ demo ────┤
   └───▶ daemon ──┼──▶ ipc ──▶ model
          └──▶ detect ───────▶ model
 config ─────────────────────▶ model

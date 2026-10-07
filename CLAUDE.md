@@ -17,7 +17,8 @@ second.
 ## Commands
 
 ```bash
-cargo run                                   # open the TUI
+cargo run                                   # open the TUI (demo data for now)
+cargo install --path . --locked             # install so `paddock` works anywhere
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
@@ -45,14 +46,20 @@ Pin every action to a full commit SHA with the version in a comment.
 
 ## Status
 
-Architecture skeleton: `Cargo.toml` with all v0.1 dependencies, and every
-module from `docs/ARCHITECTURE.md` exists with a `//!` contract but no code.
-Detector fixtures are in `tests/fixtures/`. Next: implement v0.1, starting
-with `model` and `detect` (test first, against the fixtures).
+The TUI works end to end on demo data: `src/demo.rs` answers the same
+`ipc` requests the daemon will, with fake processes, logs, ports and CPU.
+`model`, `ipc`, `tui` and `cli` are implemented; `detect`, `config` and
+`daemon` are still contracts only. Next: `detect` against
+`tests/fixtures/`, then the supervisor, then switch `cli` from `demo` to the
+real backend.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in
 the same commit.
+
+TUI render tests use insta snapshots in `src/tui/snapshots/`. After an
+intended UI change, run `INSTA_UPDATE=always cargo test`, then read the
+`.snap` diff before committing.
 
 ## Rules (`.claude/rules/`, loaded automatically)
 
