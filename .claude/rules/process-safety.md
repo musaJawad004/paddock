@@ -2,7 +2,6 @@
 paths:
   - "src/daemon/**"
   - "src/detect/**"
-  - "src/ports/**"
 ---
 # Process safety
 

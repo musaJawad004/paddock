@@ -1,0 +1,73 @@
+[package]
+name = "paddock"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "A terminal workspace for your dev servers: every project, process and port in one place"
+license = "MIT"
+repository = "https://github.com/musaJawad004/paddock"
+readme = "README.md"
+keywords = ["tui", "dev-server", "process-manager", "ports", "terminal"]
+categories = ["command-line-utilities", "development-tools"]
+# Not on crates.io until v1. Releases come from CI (cargo-dist).
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "paddock"
+path = "src/main.rs"
+
+[dependencies]
+# Terminal UI
+ratatui = "0.30.2"
+# Same version ratatui uses, only to enable the async event stream.
+crossterm = { version = "0.29.0", features = ["event-stream"] }
+unicode-width = "0.2.2"
+
+# Async runtime and event plumbing. No "net" feature until the v0.2 daemon,
+# and then only for Unix sockets.
+tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+futures = "0.3.34"
+
+# Child processes: PTY per process, terminal emulation for its output,
+# process-group signals, CPU and RAM.
+portable-pty = "0.9.0"
+vt100 = "0.16.2"
+# Same nix version portable-pty uses, so only one copy is compiled.
+nix = { version = "0.28.0", features = ["signal", "process"] }
+sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
+
+# CLI, config and the IPC wire format
+clap = { version = "4.6.7", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+toml = "1.1.6"
+
+# Errors and logs. Logs go to a file, because the TUI owns the terminal.
+thiserror = "2.0.21"
+color-eyre = "0.6.5"
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+tracing-appender = "0.2.5"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+insta = "1.49.0"
+pretty_assertions = "1.4.1"
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+unwrap_used = "deny"
+expect_used = "deny"
+dbg_macro = "deny"
+todo = "deny"
+unimplemented = "deny"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

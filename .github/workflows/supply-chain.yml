@@ -123,6 +123,7 @@ jobs:
           # Pushes made with GITHUB_TOKEN do not start workflows, but a manual
           # dispatch does, so the fix branch still gets checked.
           gh workflow run supply-chain.yml --ref "$branch"
+          gh workflow run ci.yml --ref "$branch"
 
       - name: Open an issue when no automatic fix exists
         if: steps.fix.outputs.result == 'unfixable' || steps.fix.outputs.result == 'partial'

@@ -45,8 +45,14 @@ Pin every action to a full commit SHA with the version in a comment.
 
 ## Status
 
-Repo scaffolding only: rules, skills, hooks and docs. The crate has not been
-created yet. First task is v0.1 (see the roadmap in `docs/ARCHITECTURE.md`).
+Architecture skeleton: `Cargo.toml` with all v0.1 dependencies, and every
+module from `docs/ARCHITECTURE.md` exists with a `//!` contract but no code.
+Detector fixtures are in `tests/fixtures/`. Next: implement v0.1, starting
+with `model` and `detect` (test first, against the fixtures).
+
+Read a module's `//!` contract before writing code in it. If the code needs
+to break the contract, change the contract and `docs/ARCHITECTURE.md` in
+the same commit.
 
 ## Rules (`.claude/rules/`, loaded automatically)
 

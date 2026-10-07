@@ -39,34 +39,57 @@ touching the TUI.
 ## Source layout
 
 ```
+Cargo.toml            dependencies, lints, release profile
+deny.toml             dependency policy (advisories, licenses, banned crates)
 src/
-  main.rs           CLI entry: paddock, add, up, down, daemon
-  model.rs          shared types: Project, ProcessSpec, ProcessState, Port, Stats
-  config.rs         global config and paddock.toml loading
-  detect/           read-only project detection
-    node.rs           package.json scripts, package manager from lockfile
-    rust.rs           Cargo.toml (bins, workspace members)
-    compose.rs        docker-compose.yml services
-    procfile.rs       Procfile and Makefile targets
-  daemon/
-    supervisor.rs     process lifecycle and restart policy
-    pty.rs            spawn in a PTY, own process group
-    logs.rs           LogBuffer: ring buffer plus vt100 screen
-    ports.rs          listening ports mapped to pids and projects
-    stats.rs          CPU and RAM via sysinfo
-  ipc/              Request and Event enums, framing (JSON lines)
+  main.rs             binary entry: error reporting, logging, then cli
+  lib.rs              module list and the dependency rules below
+  cli.rs              clap commands: paddock, add, remove, list, up, down, daemon
+  model.rs            shared types: Project, ProcessSpec, ProcessState, ListeningPort
+  config.rs           global config and paddock.toml
+  detect/             read-only project detection
+    mod.rs              runs every detector and merges results
+    node.rs             package.json, package manager, workspaces
+    rust.rs             Cargo.toml binaries and workspace members
+    compose.rs          compose services
+    procfile.rs         Procfile and Makefile targets
+  daemon/             owns child processes (in-process in v0.1)
+    mod.rs
+    supervisor.rs       lifecycle state machine, restart policy
+    pty.rs              spawn in a PTY, own process group
+    logs.rs             vt100 screen plus bounded scrollback
+    ports.rs            listening ports to pids to processes
+    stats.rs            CPU and memory
+  ipc/                the only link between tui and daemon
+    mod.rs
+    protocol.rs         Request and Event, JSON lines, PROTOCOL_VERSION
+    transport.rs        channel in v0.1, Unix socket in v0.2
   tui/
-    app.rs            state and update logic
-    keys.rs           key table shared by handler and help bar
-    theme.rs          colours, NO_COLOR handling
-    sidebar.rs        projects, processes, ports
-    logs_view.rs      live log pane, search
-    palette.rs        quick jump
-    status_bar.rs
+    mod.rs
+    app.rs              state, update, event loop
+    keys.rs             key table shared by handler and help
+    theme.rs            colours, NO_COLOR
+    sidebar.rs          projects, processes, ports
+    logs_view.rs        log pane, search, attach
+    palette.rs          quick jump and rare commands
+    status_bar.rs       key hints, connection state, errors
+tests/
+  fixtures/           fake projects for the detectors (read, never run)
 ```
 
-Dependency direction: `tui` and `daemon` both depend on `model` and `ipc`.
-`detect` depends only on `model`. Nothing depends on `tui`.
+Every module starts with a `//!` contract: what it owns, what it must not
+do. Read it before changing the module.
+
+Dependency rules:
+
+```
+cli ──▶ tui ─────┐
+  └───▶ daemon ──┼──▶ ipc ──▶ model
+         └──▶ detect ───────▶ model
+config ─────────────────────▶ model
+```
+
+`tui` and `daemon` never import each other. `detect` never runs anything.
 
 ## Data flow
 
@@ -133,10 +156,39 @@ cmd = "docker compose up postgres"
 | Ports | parse `lsof -nP -iTCP -sTCP:LISTEN` first, native APIs later |
 | Config | serde, toml |
 | CLI | clap (derive) |
+| Signals | nix (same version as portable-pty) |
+| Logging | tracing, written to a file because the TUI owns the terminal |
 | Errors | thiserror in modules, color-eyre in main |
 | Release | cargo-dist: GitHub Releases and a Homebrew tap |
 
-Exact versions are pinned in `Cargo.toml` when the crate is scaffolded.
+Exact versions are in `Cargo.toml`. Every dependency must pass `deny.toml`.
+
+## Decisions
+
+Short records of choices that are expensive to reverse.
+
+1. **Library plus thin binary.** All logic lives in `src/lib.rs` modules so
+   integration tests in `tests/` can use it. `main.rs` only wires errors,
+   logging and the CLI.
+2. **Supervisor in-process first, daemon second.** v0.1 ships faster with
+   one process. Because `tui` and `daemon` already talk only through `ipc`,
+   v0.2 changes the transport, not the TUI.
+3. **PTY per child (portable-pty), not plain pipes.** Dev servers detect a
+   terminal and change behaviour without one: no colours, no QR code,
+   different buffering. A PTY also puts the child in its own session, which
+   gives us the process group we need to stop the whole tree.
+4. **`lsof` for ports in v0.1.** It is on every Mac and most Linux machines
+   and gives pid and port in one call. Native APIs can replace it later
+   behind `daemon::ports` without changing callers.
+5. **No `dirs` crate.** Config goes to `$XDG_CONFIG_HOME/paddock` or
+   `~/.config/paddock` on both platforms. This also kept an MPL-2.0
+   dependency out of the tree.
+6. **No network code, enforced.** `deny.toml` bans HTTP and TLS crates; the
+   supply chain scan rejects TCP and UDP APIs in `src/`. The daemon in v0.2
+   uses a Unix socket only.
+7. **`unsafe_code = "deny"`.** Process-group setup is done by portable-pty;
+   Paddock itself should not need unsafe. An exception needs a comment
+   explaining why and a review.
 
 ## Roadmap
 
