@@ -308,8 +308,12 @@ impl App {
                 };
             }
             Action::CopyAll => {
+                // A server without a log: Y copies the command that gives it
+                // one, which is what the screen offers.
+                let without_log = self.selected_server().is_some_and(|s| s.log.is_none());
                 return match self.focus {
                     Focus::Logs => self.copy_all_logs(),
+                    Focus::Servers if without_log => self.copy_run_command(),
                     _ => self.copy_command(),
                 };
             }
@@ -495,8 +499,8 @@ impl App {
     fn copy_run_command(&mut self) -> Option<Effect> {
         let server = self.selected_server()?;
         Some(Effect::Copy {
-            text: format!("paddock run {}", server.command),
-            what: "the paddock run command".into(),
+            text: run_command(server),
+            what: "the restart command".into(),
         })
     }
 
@@ -606,6 +610,18 @@ impl App {
         let stopping = self.snapshot.servers().count() - running;
         (running, stopping)
     }
+}
+
+/// One line to paste in a terminal: go to the server's folder and start the
+/// same command with its log captured.
+pub(super) fn run_command(server: &Server) -> String {
+    let folder = super::tilde(&server.cwd);
+    let folder = if folder.contains(' ') {
+        format!("\"{folder}\"")
+    } else {
+        folder
+    };
+    format!("cd {folder} && paddock run {}", server.command)
 }
 
 impl Widget for &App {
@@ -862,7 +878,10 @@ pub(crate) mod tests {
         press(&mut app, KeyCode::Tab);
         assert_eq!(
             press(&mut app, KeyCode::Char('Y')),
-            copied("paddock run npm run api", "the paddock run command")
+            copied(
+                "cd /home/me/shop && paddock run npm run api",
+                "the restart command"
+            )
         );
     }
 

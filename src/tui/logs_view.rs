@@ -128,28 +128,44 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     }
 }
 
-/// How to get logs for a server Paddock cannot read.
+/// How to get logs for a server Paddock cannot read: three steps, with the
+/// exact line to paste, and Y to copy it.
 fn render_no_log(app: &App, server: &Server, block: Block, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
+    let stop = app.keymap.first(Action::Stop);
     let copy = app.keymap.first(Action::CopyAll);
+    let step = |n: &str, text: String| {
+        Line::from(vec![
+            Span::styled(format!(" {n} "), theme.key()),
+            Span::styled(text, theme.text()),
+        ])
+    };
     let lines = vec![
         Line::styled(
-            " Started without Paddock, so its output only goes to the terminal it runs in. To see its logs here, restart it with:",
+            " No logs: this server was started outside Paddock, so its output only goes to its own terminal. To see logs here:",
             theme.dim(),
         ),
         Line::raw(""),
-        Line::styled(format!("   paddock run {}", server.command), theme.accent()),
+        step(
+            "1",
+            format!("Press {stop} to stop it (otherwise the new copy gets another port)."),
+        ),
+        step(
+            "2",
+            format!("Press {copy} to copy this, then paste it in any terminal:"),
+        ),
         Line::raw(""),
-        Line::from(vec![
-            Span::styled(" Press ", theme.dim()),
-            Span::styled(format!("tab {copy}"), theme.key()),
-            Span::styled(
-                " to copy that command. To capture every dev server from now on, add this line to ~/.zshrc once:",
-                theme.dim(),
-            ),
-        ]),
+        Line::styled(
+            format!("     {}", super::app::run_command(server)),
+            theme.accent(),
+        ),
         Line::raw(""),
-        Line::styled("   eval \"$(paddock init zsh)\"", theme.accent()),
+        step("3", "Its logs show up here as soon as it starts.".into()),
+        Line::raw(""),
+        Line::styled(
+            " To skip this for every future server, add  eval \"$(paddock init zsh)\"  to ~/.zshrc once.",
+            theme.dim(),
+        ),
     ];
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })

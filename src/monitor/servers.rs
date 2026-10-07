@@ -155,7 +155,7 @@ pub fn collect(listeners: &[Listener], table: &impl ProcessTable, cx: &Context) 
                 Server {
                     id: *id,
                     name: server_name(&cmd, table.name(*named_by).as_deref()),
-                    command: cmd.join(" "),
+                    command: typed_command(&cmd).join(" "),
                     cwd: table.cwd(id.pid).unwrap_or_else(|| root_dir.clone()),
                     ports: Vec::new(),
                     processes: tree.len(),
@@ -321,6 +321,27 @@ fn node_runner(script: &str) -> Option<&'static str> {
         .iter()
         .find(|(file, _)| name == *file)
         .map(|(_, runner)| *runner)
+}
+
+/// The command as the user would type it: `node .../yarn.js run dev` is
+/// `yarn run dev`, and `/usr/local/bin/python3 -m http.server` is `python3
+/// -m http.server`. Arguments are kept as they are.
+pub fn typed_command(cmd: &[String]) -> Vec<String> {
+    let Some((program, args)) = cmd.split_first() else {
+        return Vec::new();
+    };
+    let program = base(program).trim_start_matches('-');
+    if program == "node"
+        && let Some((script, rest)) = args.split_first()
+        && let Some(runner) = node_runner(script)
+    {
+        return std::iter::once(runner.to_owned())
+            .chain(rest.iter().cloned())
+            .collect();
+    }
+    std::iter::once(program.to_owned())
+        .chain(args.iter().cloned())
+        .collect()
 }
 
 /// Fixes two ways macOS reports command lines oddly: a program that set its
@@ -700,6 +721,22 @@ mod tests {
         let server = snap.servers().next().expect("server");
         assert_eq!(server.id.pid, 300);
         assert_eq!(server.name, "dev");
+    }
+
+    #[test]
+    fn commands_read_as_typed() {
+        let cmd = |s: &str| s.split_whitespace().map(String::from).collect::<Vec<_>>();
+        assert_eq!(
+            typed_command(&cmd(
+                "node /opt/homebrew/Cellar/yarn/1.22.22/libexec/bin/yarn.js run dev"
+            )),
+            cmd("yarn run dev")
+        );
+        assert_eq!(
+            typed_command(&cmd("/usr/local/bin/python3 -m http.server 8000")),
+            cmd("python3 -m http.server 8000")
+        );
+        assert_eq!(typed_command(&cmd("npm run dev")), cmd("npm run dev"));
     }
 
     #[test]
