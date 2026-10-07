@@ -1,0 +1,14 @@
+# Keeps the pinned action SHAs in .github/workflows current. Cargo
+# dependencies are handled by the autofix job in supply-chain.yml, plus
+# Dependabot security updates when enabled in the repository settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5

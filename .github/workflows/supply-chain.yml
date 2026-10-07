@@ -1,0 +1,160 @@
+name: Supply chain
+
+# Runs on every push to any branch, on pull requests, and daily, because a
+# dependency can be found vulnerable long after it was merged.
+#
+# scan      injected payloads and network code (scripts/scan-supply-chain.py)
+# deps      cargo-deny: advisories, licenses, banned crates, sources (deny.toml)
+# autofix   on main, if deps failed: cargo update, re-check, open a pull request
+# alert     if scan failed: open an issue. Injected code is never auto-fixed.
+
+on:
+  push:
+  pull_request:
+  schedule:
+    - cron: '17 4 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Injected payloads and network code
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every branch, so a payload pushed to a side branch is caught too.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Scan working tree and every branch
+        run: python3 scripts/scan-supply-chain.py
+
+  deps:
+    name: Dependencies (cargo-deny)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        if: hashFiles('Cargo.toml') != ''
+        with:
+          tool: cargo-deny@0.20.2
+      - name: cargo deny check
+        run: |
+          if [ ! -f Cargo.toml ]; then
+            echo "No Cargo.toml yet, nothing to check."
+            exit 0
+          fi
+          cargo deny check
+
+  autofix:
+    name: Auto-fix vulnerable dependencies
+    needs: deps
+    if: always() && needs.deps.result == 'failure' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      actions: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: taiki-e/install-action@f7e5d7c961414b23f5b25b2da9294395d08513ad # v2.87.26
+        with:
+          tool: cargo-deny@0.20.2
+      - name: Try cargo update
+        id: fix
+        run: scripts/autofix-deps.sh
+
+      - name: Open or update the fix pull request
+        if: steps.fix.outputs.result == 'fixed' || steps.fix.outputs.result == 'partial'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ steps.fix.outputs.result }}
+        run: |
+          branch=autofix/deps
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add Cargo.lock
+          {
+            echo "Update dependencies with security advisories"
+            echo
+            echo "Automatic fix from the supply chain workflow. cargo update moved"
+            echo "these crates to semver-compatible versions:"
+            echo
+            cat target/autofix-updates.txt
+          } > target/commit-message.txt
+          git commit -q -F target/commit-message.txt
+          git push --force origin "$branch"
+
+          {
+            echo "The supply chain workflow found dependencies with security advisories and ran \`cargo update\`."
+            echo
+            echo '```'
+            cat target/autofix-updates.txt
+            echo '```'
+            echo
+            if [ "$RESULT" = "partial" ]; then
+              echo "Some advisories remain after this update and need a manual fix. See the issue opened by the same run."
+            else
+              echo "\`cargo deny check advisories\` passes with this lockfile."
+            fi
+            echo
+            echo "Only Cargo.lock changed. Review the updates, wait for CI, then merge."
+            echo
+            echo "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          } > target/pr-body.md
+
+          if [ "$(gh pr list --head "$branch" --state open --json number --jq 'length')" = "0" ]; then
+            gh pr create --head "$branch" --base main \
+              --title "Update dependencies with security advisories" \
+              --body-file target/pr-body.md
+          else
+            gh pr edit "$branch" --body-file target/pr-body.md
+          fi
+          # Pushes made with GITHUB_TOKEN do not start workflows, but a manual
+          # dispatch does, so the fix branch still gets checked.
+          gh workflow run supply-chain.yml --ref "$branch"
+
+      - name: Open an issue when no automatic fix exists
+        if: steps.fix.outputs.result == 'unfixable' || steps.fix.outputs.result == 'partial'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Dependency advisory needs a manual fix"
+          open=$(gh issue list --state open --search "\"$title\" in:title" --json number --jq 'length')
+          [ "$open" = "0" ] || exit 0
+          printf '%s\n\n%s\n' \
+            "cargo-deny found an advisory that \`cargo update\` cannot fix (no semver-compatible patched version, or a pinned dependency). Run \`cargo deny check advisories\` locally and upgrade or replace the crate." \
+            "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > issue-body.md
+          gh issue create --title "$title" --body-file issue-body.md
+
+  alert:
+    name: Report scan findings
+    needs: scan
+    if: always() && needs.scan.result == 'failure' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      issues: write
+    steps:
+      - name: Open an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          title="Supply chain scan found something"
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "\"$title\" in:title" --json number --jq 'length')
+          [ "$open" = "0" ] || exit 0
+          printf '%s\n\n%s\n\n%s\n' \
+            "The scan flagged files on \`$REF_NAME\`. Do not merge or release until this is understood." \
+            "Injected code is not fixed automatically, because removing it by script could hide how it got in. Open the run, check each flagged file and its git history, revert the commit that added it, and rotate any credentials that branch could reach." \
+            "Run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" > issue-body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body-file issue-body.md

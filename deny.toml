@@ -1,0 +1,47 @@
+# cargo-deny configuration, run by .github/workflows/supply-chain.yml.
+# Docs: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+all-features = true
+
+[advisories]
+# Known vulnerabilities and unmaintained crates from the RustSec database.
+# To accept one on purpose, add { id = "RUSTSEC-...", reason = "..." } here.
+ignore = []
+unmaintained = "workspace"
+yanked = "deny"
+
+[licenses]
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "Unicode-3.0",
+]
+confidence-threshold = 0.9
+# The allow list is a policy, so entries no dependency uses yet are fine.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Paddock has no network code. These crates would break that promise, even
+# when pulled in by another dependency.
+deny = [
+    { crate = "reqwest", reason = "Paddock has no network code" },
+    { crate = "ureq", reason = "Paddock has no network code" },
+    { crate = "hyper", reason = "Paddock has no network code" },
+    { crate = "isahc", reason = "Paddock has no network code" },
+    { crate = "surf", reason = "Paddock has no network code" },
+    { crate = "attohttpc", reason = "Paddock has no network code" },
+    { crate = "curl", reason = "Paddock has no network code" },
+    { crate = "openssl", reason = "Paddock has no network code" },
+]
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

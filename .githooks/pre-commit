@@ -1,0 +1,4 @@
+#!/bin/bash
+# Local check before every commit: the same payload and network scan CI runs.
+# Enable once per clone with: git config core.hooksPath .githooks
+exec python3 scripts/scan-supply-chain.py --local

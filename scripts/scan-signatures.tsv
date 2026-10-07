@@ -1,0 +1,19 @@
+# Signatures for scripts/scan-supply-chain.py.
+# Format: kind<TAB>name<TAB>python regex. Lines starting with # are ignored.
+# kind "malware" applies to every scanned file. kind "network" applies to
+# Rust code outside tests, because Paddock promises to have no network code.
+# This is the only file the scanner skips, since it would match itself.
+malware	injected global.i marker	global\.i\s*=\s*['"]A[\d\-*#]
+malware	known IOC string	wuqktamceigynzbosdctpusocrjhrflovnxrt
+malware	known IOC call	Tgw\(2509\)
+malware	obfuscated _0x identifiers	_0x[0-9a-f]{4,6}
+malware	blockchain-resolved C2	eth_getBlockByNumber|eth_getTransactionCount
+malware	spawn('-e') dropper	spawn\([^)]{0,40}'-e'
+malware	detached process	'detached':\s*!!\[\]
+malware	curl piped into a shell	curl\s+-[a-zA-Z]*s[a-zA-Z]*\s+https?://[^\s|]+\s*\|\s*(ba)?sh
+malware	eval of decoded text	(?:eval|new\s+Function)\s*\(\s*(?:atob|Buffer\.from)\s*\(
+malware	PowerShell download cradle	IEX\s*\(\s*New-Object\s+Net\.WebClient
+malware	base64 into a process spawn	child_process[\s\S]{0,80}(?:exec|spawn)[\s\S]{0,80}(?:atob|base64)
+network	HTTP client crate	\b(?:reqwest|ureq|hyper|isahc|surf|attohttpc|curl)::
+network	TCP or UDP socket	\bstd::net\b|\bTcpStream\b|\bTcpListener\b|\bUdpSocket\b
+network	tokio TCP or UDP	\btokio::net::(?:TcpStream|TcpListener|TcpSocket|UdpSocket)\b

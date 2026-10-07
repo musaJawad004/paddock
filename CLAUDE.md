@@ -21,7 +21,27 @@ cargo run                                   # open the TUI
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
+scripts/scan-supply-chain.py --local        # payload and network scan (also the pre-commit hook)
+cargo deny check                            # advisories, licenses, banned crates
+git config core.hooksPath .githooks         # once per clone
 ```
+
+## Supply chain
+
+`.github/workflows/supply-chain.yml` runs on every push, every PR and daily:
+
+- `scan`: `scripts/scan-supply-chain.py` checks every branch for injected
+  payloads and for network code in Rust outside tests. Signatures are in
+  `scripts/scan-signatures.tsv`, the only file the scan skips.
+- `deps`: `cargo deny check` with `deny.toml` (RustSec advisories, license
+  allow list, banned network crates, crates.io only).
+- `autofix`: on `main`, when `deps` fails, `scripts/autofix-deps.sh` runs
+  `cargo update` and re-checks. A fix becomes a PR from `autofix/deps`;
+  advisories with no compatible fix become an issue.
+- `alert`: a scan finding opens an issue. Injected code is never removed
+  automatically.
+
+Pin every action to a full commit SHA with the version in a comment.
 
 ## Status
 
