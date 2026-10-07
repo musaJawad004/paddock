@@ -1,0 +1,20 @@
+---
+source: src/tui/splash.rs
+expression: "frame(2000, 40, 16)"
+---
+"                                        "
+"                                        "
+"                  ▄█▄█                  "
+"               ▄████▀██▄                "
+"              ███████████▄              "
+"              ███████▀▀████▄            "
+"              ██████    ▀█▄▀            "
+"              ██████                    "
+"                                        "
+"              p a d d o c k             "
+"     ╫─────╫─────╫─────╫─────╫─────     "
+"                                        "
+"A terminal workspace for your dev server"
+"         v0.1.0   press any key         "
+"                                        "
+"                                        "

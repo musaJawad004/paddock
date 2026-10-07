@@ -20,8 +20,29 @@ cargo install --git https://github.com/musaJawad004/paddock --locked
 paddock
 ```
 
-Use `↑↓` to pick a process, `s` `x` `r` to start, stop and restart it, `?`
-for every key, and `q` to quit.
+| Key | Does |
+|---|---|
+| `↑` `↓` | pick a process (or a port, or a log line) |
+| `tab` | move between processes, ports and logs |
+| `s` `x` `r` | start, stop, restart |
+| `K` | kill now, or kill whatever holds the selected port |
+| `p` / `m` | change the port / move to another project |
+| `i` | details: folder, pid, uptime, command, CPU, memory |
+| `v` `y` `Y` | select lines, copy them, copy all logs |
+| `,` | settings: theme, keys, splash |
+| `?` / `q` | help / quit |
+
+Every key can be changed in settings or in `~/.config/paddock/config.toml`:
+
+```toml
+[ui]
+theme = "paddock"   # terminal, catppuccin-mocha, dracula, nord, gruvbox, tokyo-night, solarized-light
+splash = true
+
+[keys]
+start = "S"
+quit = ["q", "ctrl+q"]
+```
 
 ## What it will do
 

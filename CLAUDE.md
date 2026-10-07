@@ -19,6 +19,7 @@ second.
 ```bash
 cargo run                                   # open the TUI (demo data for now)
 cargo install --path . --locked             # install so `paddock` works anywhere
+cargo run -- --no-splash --theme nord       # one-off flags; --config-path prints the config file
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
@@ -47,11 +48,15 @@ Pin every action to a full commit SHA with the version in a comment.
 ## Status
 
 The TUI works end to end on demo data: `src/demo.rs` answers the same
-`ipc` requests the daemon will, with fake processes, logs, ports and CPU.
-`model`, `ipc`, `tui` and `cli` are implemented; `detect`, `config` and
-`daemon` are still contracts only. Next: `detect` against
+`ipc` requests the daemon will, with fake processes, coloured logs (Expo QR
+included), ports and CPU. Implemented: `model`, `ipc`, `config`, `tui`,
+`cli`. Contracts only: `detect`, `daemon`. Next: `detect` against
 `tests/fixtures/`, then the supervisor, then switch `cli` from `demo` to the
 real backend.
+
+TUI features: splash with Paddy the pony, 8 themes, settings popup (`,`)
+that saves to config.toml, rebindable keys, log cursor with line and range
+copy, details view, kill, change port, move to project, kill foreign ports.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in

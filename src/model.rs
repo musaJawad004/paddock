@@ -59,7 +59,7 @@ impl ProcessState {
             Self::Stopping => "stopping".into(),
             Self::Exited => "exited".into(),
             Self::Crashed(Some(code)) => format!("crashed (exit {code})"),
-            Self::Crashed(None) => "crashed (signal)".into(),
+            Self::Crashed(None) => "killed".into(),
         }
     }
 }
@@ -78,6 +78,14 @@ pub struct ProcessInfo {
     /// The port it listens on once running, or the expected one as a hint.
     pub port: Option<u16>,
     pub usage: Option<ResourceUsage>,
+    /// Working directory the command runs in.
+    pub cwd: PathBuf,
+    /// Where the command came from, e.g. "package.json script dev".
+    pub source: String,
+    pub pid: Option<u32>,
+    /// When it last started, in Unix milliseconds.
+    pub started_at_ms: Option<u64>,
+    pub restarts: u32,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -101,4 +109,12 @@ pub struct ListeningPort {
 pub struct Snapshot {
     pub projects: Vec<ProjectInfo>,
     pub ports: Vec<ListeningPort>,
+}
+
+/// Unix time in milliseconds. Timestamps cross `ipc`, so they are plain
+/// numbers rather than `Instant`s.
+pub fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
 }

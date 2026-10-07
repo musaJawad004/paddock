@@ -2,54 +2,82 @@
 //! `ipc::Event`, everything it does leaves as `ipc::Request`.
 //!
 //! Built the way `.claude/skills/ratatui-tui/SKILL.md` describes: state and
-//! updates in `app`, one view module per screen area, keys in one table,
-//! colours in one theme.
+//! updates in `app`, one view module per screen area, keys in one keymap,
+//! colours in one theme. Side effects (copying, saving the config) run on
+//! blocking tasks and report back as messages, so the UI never stalls.
 
+mod ansi;
 pub mod app;
+mod brand;
+mod clipboard;
+mod details;
 mod help;
 pub mod keys;
 mod logs_view;
+mod overlay;
 pub mod palette;
+mod settings;
 mod sidebar;
+mod splash;
 mod status_bar;
 pub mod theme;
 
-use std::io;
-use std::time::Duration;
+use std::io::{self, Write};
+use std::path::Path;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{Event as TermEvent, EventStream, KeyEventKind};
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
+use tokio::sync::mpsc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
+use crate::config::{self, Config};
 use crate::ipc::transport::ClientEnd;
-use app::{App, Msg};
-use theme::Theme;
+use app::{App, Effect, Msg, NoticeKind};
 
 /// Draw at most this often; changes in between are coalesced into one frame.
 const FRAME: Duration = Duration::from_millis(33);
 
-/// Takes over the terminal until the user quits. `source` is shown in the
-/// header so it is always clear where the data comes from.
-pub async fn run(client: ClientEnd, source: &str) -> io::Result<()> {
+pub struct Options {
+    /// Shown in the header so it is always clear where the data comes from.
+    pub source: String,
+    pub config: Config,
+    pub splash: bool,
+    /// Shown once at start-up, e.g. why the config could not be read.
+    pub notice: Option<String>,
+}
+
+/// Takes over the terminal until the user quits.
+pub async fn run(client: ClientEnd, options: Options) -> io::Result<()> {
     let mut terminal = ratatui::init();
-    let result = event_loop(&mut terminal, client, source).await;
+    let result = event_loop(&mut terminal, client, options).await;
     ratatui::restore();
     result
+}
+
+/// Results of side effects, coming back from blocking tasks.
+enum Done {
+    Copied { lines: usize, osc52: Option<String> },
+    Saved(Result<(), String>),
 }
 
 async fn event_loop(
     terminal: &mut DefaultTerminal,
     mut client: ClientEnd,
-    source: &str,
+    options: Options,
 ) -> io::Result<()> {
-    let mut app = App::new(Theme::from_env(), source);
+    let mut app = App::new(options.config, options.source, options.splash);
+    if let Some(notice) = options.notice {
+        app.notify(NoticeKind::Error, notice);
+    }
     let mut input = EventStream::new();
     let mut frame = tokio::time::interval(FRAME);
+    let (done_tx, mut done_rx) = mpsc::channel::<Done>(16);
     let mut backend_open = true;
 
     while !app.should_quit() {
-        let request = tokio::select! {
+        let effect = tokio::select! {
             event = input.next() => match event {
                 Some(Ok(TermEvent::Key(key))) if key.kind == KeyEventKind::Press => {
                     app.update(Msg::Key(key))
@@ -66,17 +94,56 @@ async fn event_loop(
                     app.update(Msg::BackendGone)
                 }
             },
+            Some(done) = done_rx.recv() => match done {
+                Done::Copied { lines, osc52 } => {
+                    if let Some(sequence) = osc52 {
+                        let mut out = io::stdout();
+                        out.write_all(sequence.as_bytes())?;
+                        out.flush()?;
+                    }
+                    app.update(Msg::Copied { lines })
+                }
+                Done::Saved(result) => app.update(Msg::Saved(result)),
+            },
             _ = frame.tick() => {
+                app.update(Msg::Tick(Instant::now()));
                 if app.take_dirty() {
                     terminal.draw(|f| f.render_widget(&app, f.area()))?;
                 }
                 None
             }
         };
-        if let Some(request) = request
-            && client.requests.send(request).await.is_err()
-        {
-            app.update(Msg::BackendGone);
+
+        match effect {
+            None => {}
+            Some(Effect::Send(request)) => {
+                if client.requests.send(request).await.is_err() {
+                    app.update(Msg::BackendGone);
+                }
+            }
+            Some(Effect::Copy { text, lines }) => {
+                let done = done_tx.clone();
+                tokio::spawn(async move {
+                    let copied = tokio::task::spawn_blocking(move || clipboard::copy(&text)).await;
+                    let osc52 = match copied {
+                        Ok(clipboard::Copied::System) => None,
+                        Ok(clipboard::Copied::Osc52(sequence)) => Some(sequence),
+                        Err(_) => return,
+                    };
+                    let _ = done.send(Done::Copied { lines, osc52 }).await;
+                });
+            }
+            Some(Effect::Save(config)) => {
+                let done = done_tx.clone();
+                tokio::spawn(async move {
+                    let saved = tokio::task::spawn_blocking(move || config::save(&config)).await;
+                    let result = match saved {
+                        Ok(result) => result.map_err(|e| e.to_string()),
+                        Err(e) => Err(e.to_string()),
+                    };
+                    let _ = done.send(Done::Saved(result)).await;
+                });
+            }
         }
     }
     Ok(())
@@ -100,6 +167,17 @@ pub(crate) fn fit(text: &str, width: usize) -> String {
     }
     out.push('…');
     format!("{out}{}", " ".repeat(width.saturating_sub(used + 1)))
+}
+
+/// A path with the home folder shown as `~`.
+pub(crate) fn tilde(path: &Path) -> String {
+    let text = path.display().to_string();
+    match std::env::var("HOME") {
+        Ok(home) if !home.is_empty() && text.starts_with(&home) => {
+            format!("~{}", &text[home.len()..])
+        }
+        _ => text,
+    }
 }
 
 #[cfg(test)]

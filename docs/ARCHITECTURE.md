@@ -66,15 +66,22 @@ src/
     protocol.rs         Request and Event, JSON lines, PROTOCOL_VERSION
     transport.rs        channel in v0.1, Unix socket in v0.2
   tui/
-    mod.rs
-    app.rs              state, update, event loop
-    keys.rs             key table shared by handler and help
-    theme.rs            colours, NO_COLOR
+    mod.rs              event loop; runs copy and save off the UI thread
+    app.rs              state, update, effects, layout
+    keys.rs             actions, default keys, config overrides, rebinding
+    theme.rs            8 palettes, 256-colour fallback, NO_COLOR
+    ansi.rs             ANSI colours and \r redraws in process output
     sidebar.rs          projects, processes, ports
-    logs_view.rs        log pane, search, attach
-    palette.rs          quick jump and rare commands
-    help.rs             the ? popup, built from the key table
-    status_bar.rs       key hints, connection state, errors
+    logs_view.rs        log pane, cursor, selection, scrollbar
+    details.rs          project and process details
+    overlay.rs          confirm, input and picker popups
+    settings.rs         theme, keys and splash settings, saved at once
+    help.rs             the ? popup, built from the keymap
+    splash.rs           start-up animation
+    brand.rs            logo and Paddy the pony
+    clipboard.rs        pbcopy, wl-copy, xclip, xsel, OSC 52 fallback
+    palette.rs          quick jump (to come)
+    status_bar.rs       header counts, footer hints, notices
 tests/
   fixtures/           fake projects for the detectors (read, never run)
 ```
@@ -85,7 +92,7 @@ do. Read it before changing the module.
 Dependency rules:
 
 ```
-cli ──▶ tui ─────┐
+cli ──▶ tui ─────┐   (tui also reads and writes config)
   ├───▶ demo ────┤
   └───▶ daemon ──┼──▶ ipc ──▶ model
          └──▶ detect ───────▶ model
