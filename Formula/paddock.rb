@@ -2,28 +2,28 @@
 class Paddock < Formula
   desc "Every dev server on this machine, in one place"
   homepage "https://github.com/musaJawad004/paddock"
-  version "0.1.0"
+  version "0.2.0"
   license "MIT"
 
   on_macos do
     on_arm do
-      url "https://github.com/musaJawad004/paddock/releases/download/v0.1.0/paddock-aarch64-apple-darwin.tar.gz"
-      sha256 "befc146f624b982664f933595b3aa75f7b32a8e1d7247bec84d07c4a4db90260"
+      url "https://github.com/musaJawad004/paddock/releases/download/v0.2.0/paddock-aarch64-apple-darwin.tar.gz"
+      sha256 "dee328ec35d6ddebfc54bd66201d11cd168645913b638481d2cac9987be6f151"
     end
     on_intel do
-      url "https://github.com/musaJawad004/paddock/releases/download/v0.1.0/paddock-x86_64-apple-darwin.tar.gz"
-      sha256 "38ed38fed680891f1d156181991a9fe7373da944fe210c949a3b9eef1d9145a0"
+      url "https://github.com/musaJawad004/paddock/releases/download/v0.2.0/paddock-x86_64-apple-darwin.tar.gz"
+      sha256 "e8a602b74b28c964ceac9109e818abdd9141ef7f530735963ef747517bdc6b92"
     end
   end
 
   on_linux do
     on_arm do
-      url "https://github.com/musaJawad004/paddock/releases/download/v0.1.0/paddock-aarch64-unknown-linux-gnu.tar.gz"
-      sha256 "36297450ce338c9ed7459ad43bda29013e058336765675b34f3e6d4c0ac9fa33"
+      url "https://github.com/musaJawad004/paddock/releases/download/v0.2.0/paddock-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "86df8a1bfee1fb1e527df5666e41df8600ef22d43fa994cf945bff3823a09b84"
     end
     on_intel do
-      url "https://github.com/musaJawad004/paddock/releases/download/v0.1.0/paddock-x86_64-unknown-linux-gnu.tar.gz"
-      sha256 "6f15b39ea4db83cd140e6c1f59d179b6be7dfb690e34f57db92774ced8a9876a"
+      url "https://github.com/musaJawad004/paddock/releases/download/v0.2.0/paddock-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "d35c61853545769f1fb401e3c5357c0bca68b9ed00f960cca2e60085013c5250"
     end
   end
 
