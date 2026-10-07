@@ -10,9 +10,9 @@ Paddock makes two promises, so there are two checks:
    to .woff2 would otherwise be skipped as a binary asset.
 
 2. Paddock has no network code. A patch that quietly adds an HTTP client or
-   a TCP socket fails the build the same way malware does. Rust test code is
-   exempt: everything from the first `#[cfg(test)]` line to the end of a file
-   is not checked for network use.
+   a TCP socket fails the build the same way malware does. Rust tests may use
+   sockets, so files under tests/ and a trailing `#[cfg(test)] mod` block are
+   exempt. See without_tests for the exact rule.
 
 Signatures live in scripts/scan-signatures.tsv. That file is the only one the
 malware check skips, because it would match itself. Dependency checks
@@ -74,9 +74,42 @@ def font_mismatch(path, data):
     return None
 
 
+TEST_MODULE = re.compile(r"^[ \t]*#\[cfg\(test\)\][ \t]*\n(?:[ \t]*\n)*[ \t]*mod[ \t]+\w+[ \t]*\{", re.M)
+
+# Rust comments, string literals (plain, byte and raw) and char literals, so
+# braces inside them do not count when finding where the test module ends.
+NOT_CODE = re.compile(
+    r"//[^\n]*"
+    r"|/\*.*?\*/"
+    r"|b?r(#*)\".*?\"\1"
+    r"|b?\"(?:\\.|[^\"\\])*\""
+    r"|b?'(?:\\.|[^'\\])'",
+    re.S,
+)
+
+
 def without_tests(text):
-    cut = text.find("#[cfg(test)]")
-    return text if cut == -1 else text[:cut]
+    """Drop a trailing `#[cfg(test)] mod name { ... }` block, and nothing else.
+
+    The exemption applies only when the attribute is on its own line, the next
+    item is an inline module, and that module's closing brace is the end of
+    the file. Anything else is scanned in full, so a stray `#[cfg(test)]` in a
+    comment or string cannot hide code below it.
+    """
+    # Same length as text, so offsets line up.
+    code = NOT_CODE.sub(lambda m: re.sub(r"[^\n]", " ", m.group()), text)
+    match = TEST_MODULE.search(code)
+    if not match:
+        return text
+    depth = 0
+    for index in range(match.end() - 1, len(code)):
+        if code[index] == "{":
+            depth += 1
+        elif code[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return text[:match.start()] if not code[index + 1:].strip() else text
+    return text
 
 
 def scan_file(path, data, malware, network):
