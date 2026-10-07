@@ -6,6 +6,12 @@ All notable changes to Paddock are listed here. The format follows
 
 ## Unreleased
 
+- Dev servers already running on your machine show up under "Running, not
+  added", found from their port and working folder. Press a to add the
+  project or K to stop the server. Once a project is added, a copy still
+  running outside Paddock shows in Ports so it can be stopped.
+- Adding a project opens a folder picker: arrows to browse, type to
+  filter, Tab to add. Folders that look like projects are labelled.
 - Paddock runs real projects. `paddock add <folder>` (or `a` in the
   dashboard) registers a project; Paddock finds what to run in
   package.json (npm, yarn, pnpm, bun, workspaces), Cargo.toml, compose

@@ -10,6 +10,10 @@
 //! - Ports are matched to processes by walking each listener's parents up to
 //!   a pid Paddock started.
 //!
+//! Ports nobody here started, held by the user's own processes in a project
+//! folder Paddock does not know, are reported as `Discovered` so the TUI can
+//! offer to add that project.
+//!
 //! Every child is tracked by a run id; reports from an old run are dropped.
 //! Only process groups Paddock started are signalled. A foreign pid is
 //! signalled only for `KillPort`, which the TUI confirms with the user, and
@@ -31,8 +35,8 @@ use crate::config::{self, Config, ProcessOverride, process_key};
 use crate::detect;
 use crate::ipc::protocol::{Event, Request};
 use crate::model::{
-    ListeningPort, ProcessId, ProcessInfo, ProcessSpec, ProcessState, ProjectInfo, ResourceUsage,
-    Snapshot, now_ms,
+    Discovered, ListeningPort, ProcessId, ProcessInfo, ProcessSpec, ProcessState, ProjectInfo,
+    ResourceUsage, Snapshot, now_ms,
 };
 
 const STOP_GRACE: Duration = Duration::from_secs(5);
@@ -97,6 +101,10 @@ pub struct Supervisor {
     projects: Vec<Project>,
     procs: Vec<Proc>,
     listeners: Vec<ListeningPort>,
+    discovered: Vec<Discovered>,
+    /// Running servers are discovered only in project folders below this,
+    /// the home folder unless a test says otherwise.
+    discover_root: Option<PathBuf>,
     foreign_kills: Vec<(u32, Instant)>,
     next_run: u64,
     reports: mpsc::Sender<Tagged>,
@@ -111,6 +119,10 @@ impl Supervisor {
             projects: Vec::new(),
             procs: Vec::new(),
             listeners: Vec::new(),
+            discovered: Vec::new(),
+            discover_root: std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .map(|home| home.canonicalize().unwrap_or(home)),
             foreign_kills: Vec::new(),
             next_run: 1,
             reports,
@@ -127,6 +139,10 @@ impl Supervisor {
     }
 
     fn add_project_dir(&mut self, path: &Path, config: &Config) -> usize {
+        // Canonical, so it compares equal to the folders the OS reports for
+        // running processes (macOS resolves /tmp to /private/tmp).
+        let canonical = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        let path = canonical.as_path();
         let name = detect::project_name(path);
         let specs = detect::detect(path);
         let found = specs.len();
@@ -158,6 +174,10 @@ impl Supervisor {
             name,
         });
         found
+    }
+
+    pub fn set_discover_root(&mut self, root: &Path) {
+        self.discover_root = Some(root.canonicalize().unwrap_or_else(|_| root.to_owned()));
     }
 
     pub fn is_empty(&self) -> bool {
@@ -232,6 +252,7 @@ impl Supervisor {
         Snapshot {
             projects,
             ports: ports.to_vec(),
+            discovered: self.discovered.clone(),
         }
     }
 
@@ -492,6 +513,12 @@ impl Supervisor {
             Err(err) => return vec![Event::Notice(format!("Could not save config.toml: {err}"))],
         };
         let found = self.add_project_dir(&path, &config);
+        let outside = self
+            .discovered
+            .iter()
+            .find(|d| d.path.starts_with(&path))
+            .cloned();
+        self.discovered.retain(|d| !d.path.starts_with(&path));
         let name = detect::project_name(&path);
         let notice = match found {
             0 => format!(
@@ -500,6 +527,14 @@ impl Supervisor {
             1 => format!("Added {name}: 1 process. Press s to start it."),
             n => format!("Added {name}: {n} processes."),
         };
+        let notice = match outside {
+            Some(d) => format!(
+                "Added {name}. It is already running outside Paddock on :{}; K in Ports stops it.",
+                d.ports.first().copied().unwrap_or_default()
+            ),
+            None => notice,
+        };
+        self.wants_scan = true;
         vec![Event::Snapshot(self.snapshot()), Event::Notice(notice)]
     }
 
@@ -657,6 +692,7 @@ impl Supervisor {
             None
         };
 
+        let discovered = self.discover(listeners, stats, &owner_of);
         let mut owners: HashMap<u32, usize> = HashMap::new();
         let mut ports: Vec<ListeningPort> = listeners
             .iter()
@@ -673,10 +709,17 @@ impl Supervisor {
                 }
             })
             .collect();
-        // Only ports that matter here: ours, and foreign ones on a port one
-        // of our processes wants.
+        // Only ports that matter here: ours, foreign ones on a port one of
+        // our processes wants, and servers started by hand inside one of our
+        // project folders (the same app, running outside Paddock).
         let wanted: Vec<u16> = self.procs.iter().filter_map(Proc::port).collect();
-        ports.retain(|p| p.owner.is_some() || wanted.contains(&p.port));
+        let in_our_folder = |pid: u32| {
+            stats.is_mine(pid)
+                && stats
+                    .cwd(pid)
+                    .is_some_and(|cwd| self.projects.iter().any(|p| cwd.starts_with(&p.path)))
+        };
+        ports.retain(|p| p.owner.is_some() || wanted.contains(&p.port) || in_our_folder(p.pid));
         ports.sort_by_key(|p| p.port);
         ports.dedup_by_key(|p| (p.port, p.pid));
 
@@ -706,6 +749,10 @@ impl Supervisor {
         }
 
         let mut events = Vec::new();
+        if discovered != self.discovered {
+            self.discovered = discovered.clone();
+            events.push(Event::Discovered(discovered));
+        }
         if changed_ports {
             events.push(Event::Snapshot(self.snapshot_with(&ports)));
         }
@@ -715,6 +762,54 @@ impl Supervisor {
         }
         events.push(Event::Usage(usage));
         events
+    }
+
+    /// Listeners owned by the user's processes, in a project folder under
+    /// the home folder that is not in Paddock. One entry per project.
+    fn discover(
+        &self,
+        listeners: &[Listener],
+        stats: &Stats,
+        owner_of: &dyn Fn(u32) -> Option<usize>,
+    ) -> Vec<Discovered> {
+        let Some(home) = &self.discover_root else {
+            return Vec::new();
+        };
+        let mut found: Vec<Discovered> = Vec::new();
+        for listener in listeners {
+            if owner_of(listener.pid).is_some()
+                || self.docker_owner(listener).is_some()
+                || !stats.is_mine(listener.pid)
+            {
+                continue;
+            }
+            let Some(root) = stats
+                .cwd(listener.pid)
+                .and_then(|cwd| detect::project_root(cwd, home))
+            else {
+                continue;
+            };
+            if self.projects.iter().any(|p| root.starts_with(&p.path)) {
+                continue;
+            }
+            match found.iter_mut().find(|d| d.path == root) {
+                Some(entry) => {
+                    if !entry.ports.contains(&listener.port) {
+                        entry.ports.push(listener.port);
+                    }
+                }
+                None => found.push(Discovered {
+                    name: detect::project_name(&root),
+                    kind: detect::project_kind(&root).unwrap_or("project").to_owned(),
+                    path: root,
+                    ports: vec![listener.port],
+                    pid: listener.pid,
+                    command: listener.command.clone(),
+                }),
+            }
+        }
+        found.sort_by(|a, b| a.name.cmp(&b.name));
+        found
     }
 
     /// Docker publishes container ports from its own daemon, not from the

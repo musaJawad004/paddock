@@ -13,6 +13,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Clear, Paragraph, Widget, Wrap};
 
 use super::app::{App, Effect};
+use super::folders::FolderPicker;
 use super::settings::Settings;
 use crate::ipc::protocol::Request;
 use crate::model::ProcessId;
@@ -25,6 +26,7 @@ pub enum Overlay {
     Confirm { message: String, then: Confirmed },
     Input(Input),
     Picker(Picker),
+    Folders(FolderPicker),
 }
 
 pub struct Input {
@@ -38,7 +40,6 @@ pub struct Input {
 pub enum InputPurpose {
     Port(ProcessId),
     NewProject(ProcessId),
-    AddProject,
 }
 
 /// What a yes in a confirmation does.
@@ -73,6 +74,7 @@ impl App {
             },
             Overlay::Input(input) => on_input_key(input, key),
             Overlay::Picker(picker) => self.on_picker_key(picker, key),
+            Overlay::Folders(picker) => self.on_folder_key(picker, key),
         };
         self.overlay = keep;
         effect
@@ -122,11 +124,10 @@ fn on_input_key(mut input: Input, key: KeyEvent) -> (Option<Overlay>, Option<Eff
         KeyCode::Backspace => {
             input.value.pop();
         }
-        KeyCode::Char(c) if input.value.chars().count() < 400 => {
+        KeyCode::Char(c) if input.value.chars().count() < 40 => {
             let allowed = match input.purpose {
                 InputPurpose::Port(_) => c.is_ascii_digit(),
                 InputPurpose::NewProject(_) => !c.is_control() && c != '/',
-                InputPurpose::AddProject => !c.is_control(),
             };
             if allowed {
                 input.value.push(c);
@@ -159,13 +160,6 @@ fn submit(input: &Input) -> Result<Request, String> {
                 id: id.clone(),
                 project: name.to_owned(),
             })
-        }
-        InputPurpose::AddProject => {
-            let path = input.value.trim();
-            if path.is_empty() {
-                return Err("Type the folder to add.".into());
-            }
-            Ok(Request::AddProject(path.into()))
         }
     }
 }
@@ -219,7 +213,7 @@ pub fn render(app: &App, overlay: &Overlay, area: Rect, buf: &mut Buffer) {
             lines.push(Line::styled(" Enter to move, Esc to cancel", theme.dim()));
             (picker.title.clone(), lines, 48)
         }
-        Overlay::Help | Overlay::Settings(_) => return,
+        Overlay::Help | Overlay::Settings(_) | Overlay::Folders(_) => return,
     };
 
     let height = lines.len() as u16 + 3;

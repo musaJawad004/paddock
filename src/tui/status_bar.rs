@@ -61,7 +61,16 @@ pub fn render_footer(app: &App, area: Rect, buf: &mut Buffer) {
     let keys = &app.keymap;
     let first = |action| keys.first(action);
     let moves = format!("{}{}", first(Action::Up), first(Action::Down));
+    let discovered = app.selected_discovered().is_some();
     let hints: Vec<(String, &str)> = match app.focus {
+        Focus::Processes if discovered => vec![
+            (moves, "move"),
+            (first(Action::AddProject), "add project"),
+            (first(Action::Kill), "stop it"),
+            (first(Action::NextPane), "panes"),
+            (first(Action::Help), "help"),
+            (first(Action::Quit), "quit"),
+        ],
         Focus::Processes => vec![
             (moves, "move"),
             (first(Action::Start), "start"),

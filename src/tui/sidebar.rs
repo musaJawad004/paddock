@@ -1,7 +1,8 @@
 //! Left column. Top: projects with their processes, status glyphs
 //! (● running, ◐ starting or stopping, ✗ crashed or killed, ○ stopped),
-//! port, CPU and memory. Bottom: every listening port; listeners Paddock did
-//! not start are yellow. The focused pane gets the accent border.
+//! port, CPU and memory, then dev servers running outside Paddock in
+//! projects it does not have yet. Bottom: every listening port; listeners
+//! Paddock did not start are yellow. The focused pane gets the accent border.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -40,6 +41,31 @@ pub fn render_projects(app: &App, area: Rect, buf: &mut Buffer) {
                 selected_row = Some(items.len());
             }
             items.push(ListItem::new(process_line(process, theme)));
+            index += 1;
+        }
+    }
+
+    if !app.snapshot.discovered.is_empty() {
+        if !items.is_empty() {
+            items.push(ListItem::new(""));
+        }
+        items.push(ListItem::new(Line::styled(
+            " Running, not added",
+            theme.warning(),
+        )));
+        for found in &app.snapshot.discovered {
+            if index == app.selected {
+                selected_row = Some(items.len());
+            }
+            let ports: Vec<String> = found.ports.iter().map(|p| format!(":{p}")).collect();
+            items.push(ListItem::new(Line::from(vec![
+                Span::raw("  "),
+                Span::styled("◇", theme.warning()),
+                Span::raw(" "),
+                Span::styled(fit(&found.name, NAME_WIDTH), theme.text()),
+                Span::styled(fit(&ports.join(" "), 13), theme.dim()),
+                Span::styled(found.kind.clone(), theme.dim()),
+            ])));
             index += 1;
         }
     }

@@ -16,8 +16,8 @@ use tokio::time::{self, Instant};
 use crate::ipc::protocol::{Event, Request};
 use crate::ipc::transport::ServerEnd;
 use crate::model::{
-    ListeningPort, ProcessId, ProcessInfo, ProcessState, ProjectInfo, ResourceUsage, Snapshot,
-    now_ms,
+    Discovered, ListeningPort, ProcessId, ProcessInfo, ProcessState, ProjectInfo, ResourceUsage,
+    Snapshot, now_ms,
 };
 
 const TICK: Duration = Duration::from_millis(100);
@@ -70,9 +70,12 @@ struct DemoProcess {
 struct Demo {
     projects: Vec<String>,
     processes: Vec<DemoProcess>,
-    /// A listener Paddock did not start. macOS AirPlay Receiver really does
-    /// sit on port 5000.
-    foreign: Option<ListeningPort>,
+    /// Listeners Paddock did not start. macOS AirPlay Receiver really does
+    /// sit on port 5000; the blog is a dev server started in another
+    /// terminal.
+    foreign: Vec<ListeningPort>,
+    /// Projects running outside Paddock that it offers to add.
+    discovered: Vec<Discovered>,
     /// State changes waiting for their moment, e.g. Starting then Running.
     pending: Vec<(Instant, ProcessId, ProcessState)>,
     ticks: u32,
@@ -95,12 +98,28 @@ impl Demo {
         let mut demo = Self {
             projects: Vec::new(),
             processes: Vec::new(),
-            foreign: Some(ListeningPort {
-                port: 5000,
-                pid: 812,
-                command: "ControlCenter".into(),
-                owner: None,
-            }),
+            foreign: vec![
+                ListeningPort {
+                    port: 5000,
+                    pid: 812,
+                    command: "ControlCenter".into(),
+                    owner: None,
+                },
+                ListeningPort {
+                    port: 4322,
+                    pid: 9120,
+                    command: "node".into(),
+                    owner: None,
+                },
+            ],
+            discovered: vec![Discovered {
+                name: "blog".into(),
+                path: project_path("blog"),
+                kind: "node".into(),
+                ports: vec![4322],
+                pid: 9120,
+                command: "node".into(),
+            }],
             pending: Vec::new(),
             ticks: 0,
         };
@@ -233,6 +252,7 @@ impl Demo {
         Snapshot {
             projects,
             ports: self.ports(),
+            discovered: self.discovered.clone(),
         }
     }
 
@@ -249,7 +269,7 @@ impl Demo {
                     owner: Some(p.info.id.clone()),
                 })
             })
-            .chain(self.foreign.clone())
+            .chain(self.foreign.iter().cloned())
             .collect();
         ports.sort_by_key(|p| p.port);
         ports
@@ -290,8 +310,9 @@ impl Demo {
             Request::SetPort { id, port } => self.set_port(id, port, now),
             Request::Move { id, project } => self.move_to(id, project),
             Request::KillPort { port, pid } => self.kill_port(port, pid),
-            Request::AddProject(_) | Request::RemoveProject(_) => vec![Event::Notice(
-                "The demo cannot add or remove projects. Run paddock without --demo.".into(),
+            Request::AddProject(path) => self.add_project(&path),
+            Request::RemoveProject(_) => vec![Event::Notice(
+                "The demo cannot remove projects. Run paddock without --demo.".into(),
             )],
         }
     }
@@ -401,7 +422,11 @@ impl Demo {
     }
 
     fn kill_port(&mut self, port: u16, pid: u32) -> Vec<Event> {
-        if let Some(foreign) = self.foreign.take_if(|f| f.port == port && f.pid == pid) {
+        let index = self
+            .foreign
+            .iter()
+            .position(|f| f.port == port && f.pid == pid);
+        if let Some(foreign) = index.map(|i| self.foreign.remove(i)) {
             return vec![
                 Event::Ports(self.ports()),
                 Event::Notice(format!(
@@ -421,6 +446,36 @@ impl Demo {
                 "Nothing listens on port {port} any more."
             ))],
         }
+    }
+
+    /// Only the discovered blog can be added in the demo. It arrives
+    /// stopped: the copy already running elsewhere still holds its port.
+    fn add_project(&mut self, path: &std::path::Path) -> Vec<Event> {
+        let Some(index) = self.discovered.iter().position(|d| d.path == path) else {
+            return vec![Event::Notice(
+                "The demo can only add the blog. Run paddock without --demo for real folders."
+                    .into(),
+            )];
+        };
+        self.discovered.remove(index);
+        self.add(Spec {
+            project: "blog",
+            name: "dev",
+            command: "pnpm astro dev --port 4322",
+            source: "package.json script \"dev\"",
+            port: Some(4322),
+            state: ProcessState::Stopped,
+            boot: lines(ASTRO_BOOT),
+            script: ASTRO_LOGS,
+            every: 13,
+        });
+        vec![
+            Event::Snapshot(self.snapshot()),
+            Event::Notice(
+                "Added blog. Its server is still running outside Paddock: stop it with K in Ports, then press s."
+                    .into(),
+            ),
+        ]
     }
 
     fn tick(&mut self, now: Instant) -> Vec<Event> {

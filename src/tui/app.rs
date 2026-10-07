@@ -18,14 +18,15 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
 use super::ansi;
+use super::folders::FolderPicker;
 use super::keys::{Action, Keymap};
 use super::overlay::{Confirmed, Input, InputPurpose, Overlay, Picker};
 use super::settings::Settings;
 use super::theme::Theme;
-use super::{details, help, logs_view, overlay, settings, sidebar, splash, status_bar};
+use super::{details, folders, help, logs_view, overlay, settings, sidebar, splash, status_bar};
 use crate::config::Config;
 use crate::ipc::protocol::{Event, Request};
-use crate::model::{ListeningPort, ProcessId, ProcessInfo, ProcessState, Snapshot};
+use crate::model::{Discovered, ListeningPort, ProcessId, ProcessInfo, ProcessState, Snapshot};
 
 /// Lines kept per process on the TUI side. The backend keeps the full
 /// scrollback; this is only what can be scrolled to without asking for more.
@@ -196,6 +197,18 @@ impl App {
         self.processes().nth(self.selected)
     }
 
+    /// Rows after the processes are servers running outside Paddock.
+    pub(super) fn selected_discovered(&self) -> Option<&Discovered> {
+        let processes = self.processes().count();
+        self.snapshot
+            .discovered
+            .get(self.selected.checked_sub(processes)?)
+    }
+
+    fn rows(&self) -> usize {
+        self.processes().count() + self.snapshot.discovered.len()
+    }
+
     pub(super) fn selected_logs(&self) -> Option<&VecDeque<String>> {
         self.logs.get(&self.selected_process()?.id)
     }
@@ -310,6 +323,14 @@ impl App {
     }
 
     fn on_action(&mut self, action: Action) -> Option<Effect> {
+        if let Some(found) = self
+            .selected_discovered()
+            .filter(|_| self.focus == Focus::Processes)
+            .cloned()
+            && let Some(handled) = self.on_discovered_action(action, found)
+        {
+            return handled;
+        }
         match action {
             Action::Up => self.move_by(-1),
             Action::Down => self.move_by(1),
@@ -352,15 +373,7 @@ impl App {
             Action::Settings => {
                 self.overlay = Some(Overlay::Settings(Settings::new(self.theme.name())));
             }
-            Action::AddProject => {
-                self.overlay = Some(Overlay::Input(Input {
-                    title: "Add a project folder".into(),
-                    value: super::tilde(&self.cwd),
-                    hint: "Any folder with package.json, Cargo.toml, compose.yaml, a Procfile or paddock.toml.".into(),
-                    error: None,
-                    purpose: InputPurpose::AddProject,
-                }));
-            }
+            Action::AddProject => self.open_folder_picker(),
             Action::RemoveProject => self.confirm_remove_project(),
             Action::Help => self.overlay = Some(Overlay::Help),
             Action::Quit => self.request_quit(),
@@ -484,7 +497,7 @@ impl App {
     }
 
     fn select(&mut self, index: usize) {
-        let last = self.processes().count().saturating_sub(1);
+        let last = self.rows().saturating_sub(1);
         let index = index.min(last);
         if index != self.selected {
             self.selected = index;
@@ -572,6 +585,59 @@ impl App {
             ),
             then: Confirmed::Send(Request::Kill(process.id.clone())),
         });
+    }
+
+    /// A server running outside Paddock can be added or stopped. Other
+    /// process actions explain that it needs adding first; the rest (moving,
+    /// panes, help, settings, quit) fall through. `None` means not handled.
+    fn on_discovered_action(
+        &mut self,
+        action: Action,
+        found: Discovered,
+    ) -> Option<Option<Effect>> {
+        match action {
+            Action::AddProject => Some(Some(Effect::Send(Request::AddProject(found.path)))),
+            Action::Kill => {
+                let port = found.ports.first().copied().unwrap_or_default();
+                self.overlay = Some(Overlay::Confirm {
+                    message: format!(
+                        "Stop {} (pid {}) on :{port}? It was started outside Paddock.",
+                        found.command, found.pid
+                    ),
+                    then: Confirmed::Send(Request::KillPort {
+                        port,
+                        pid: found.pid,
+                    }),
+                });
+                Some(None)
+            }
+            Action::Start
+            | Action::Stop
+            | Action::Restart
+            | Action::ChangePort
+            | Action::MoveProject
+            | Action::Details
+            | Action::RemoveProject => {
+                let add = self.keymap.first(Action::AddProject);
+                self.notify(
+                    NoticeKind::Info,
+                    format!(
+                        "{} is not in Paddock yet. Press {add} to add it.",
+                        found.name
+                    ),
+                );
+                Some(None)
+            }
+            _ => None,
+        }
+    }
+
+    fn open_folder_picker(&mut self) {
+        let start = Some(self.cwd.clone())
+            .filter(|dir| dir.is_dir())
+            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("/"));
+        self.overlay = Some(Overlay::Folders(FolderPicker::open(start)));
     }
 
     fn request_quit(&mut self) {
@@ -685,6 +751,10 @@ impl App {
                     self.logs.insert(to, logs);
                 }
             }
+            Event::Discovered(found) => {
+                self.snapshot.discovered = found;
+                self.selected = self.selected.min(self.rows().saturating_sub(1));
+            }
             Event::Notice(text) => self.notify(NoticeKind::Info, text),
         }
     }
@@ -758,15 +828,17 @@ impl Widget for &App {
         status_bar::render_header(self, header, buf);
         sidebar::render_projects(self, projects, buf);
         sidebar::render_ports(self, ports, buf);
-        match self.view {
-            View::Logs => logs_view::render(self, main, buf),
-            View::Details => details::render(self, main, buf),
+        match (self.selected_discovered(), self.view) {
+            (Some(found), _) => logs_view::render_discovered(self, found, main, buf),
+            (None, View::Logs) => logs_view::render(self, main, buf),
+            (None, View::Details) => details::render(self, main, buf),
         }
         status_bar::render_footer(self, footer, buf);
 
         match &self.overlay {
             Some(Overlay::Help) => help::render(self, area, buf),
             Some(Overlay::Settings(state)) => settings::render(self, state, area, buf),
+            Some(Overlay::Folders(picker)) => folders::render(self, picker, area, buf),
             Some(dialog) => overlay::render(self, dialog, area, buf),
             None => {}
         }
@@ -831,6 +903,7 @@ pub(crate) mod tests {
                     owner: None,
                 },
             ],
+            discovered: Vec::new(),
         };
         app.update(Msg::Backend(Event::Snapshot(snapshot)));
         app
@@ -1132,12 +1205,63 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn adding_a_project_suggests_the_current_folder() {
-        let mut app = app().with_backend(true, PathBuf::from("/tmp/here"));
+    fn discovered_servers_can_be_added_or_stopped() {
+        let mut app = app();
+        app.update(Msg::Backend(Event::Discovered(vec![Discovered {
+            name: "blog".into(),
+            path: PathBuf::from("/home/me/blog"),
+            kind: "node".into(),
+            ports: vec![4322],
+            pid: 9120,
+            command: "node".into(),
+        }])));
+        for _ in 0..3 {
+            press(&mut app, KeyCode::Down);
+        }
+        assert_eq!(
+            app.selected_discovered().map(|d| d.name.as_str()),
+            Some("blog")
+        );
+        assert_eq!(press(&mut app, KeyCode::Char('s')), None);
+        assert!(
+            app.notice
+                .as_ref()
+                .is_some_and(|n| n.text.contains("not in Paddock yet"))
+        );
+        assert_eq!(
+            press(&mut app, KeyCode::Char('a')),
+            send(Request::AddProject(PathBuf::from("/home/me/blog")))
+        );
+        press(&mut app, KeyCode::Char('K'));
+        assert_eq!(
+            press(&mut app, KeyCode::Char('y')),
+            send(Request::KillPort {
+                port: 4322,
+                pid: 9120
+            })
+        );
+    }
+
+    #[test]
+    fn the_folder_picker_starts_in_the_current_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir(dir.path().join("shop")).unwrap();
+        std::fs::write(dir.path().join("shop/package.json"), "{}").unwrap();
+        let mut app = app().with_backend(true, dir.path().to_owned());
+
         press(&mut app, KeyCode::Char('a'));
         assert_eq!(
             press(&mut app, KeyCode::Enter),
-            send(Request::AddProject(PathBuf::from("/tmp/here")))
+            send(Request::AddProject(dir.path().to_owned())),
+            "Enter on the first row adds the folder being shown"
+        );
+
+        press(&mut app, KeyCode::Char('a'));
+        press(&mut app, KeyCode::Down);
+        assert_eq!(
+            press(&mut app, KeyCode::Tab),
+            send(Request::AddProject(dir.path().join("shop"))),
+            "Tab adds the selected subfolder"
         );
     }
 

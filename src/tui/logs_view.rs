@@ -153,6 +153,54 @@ fn guess_style(raw: &str, theme: Theme) -> Style {
     }
 }
 
+/// A dev server Paddock found running outside it, with the way to add it.
+pub fn render_discovered(
+    app: &App,
+    found: &crate::model::Discovered,
+    area: Rect,
+    buf: &mut Buffer,
+) {
+    let theme = app.theme;
+    let add = app.keymap.first(Action::AddProject);
+    let kill = app.keymap.first(Action::Kill);
+    let ports: Vec<String> = found.ports.iter().map(|p| format!(":{p}")).collect();
+    let row = |label: &str, value: String| {
+        Line::from(vec![
+            Span::styled(format!(" {label:<10}"), theme.dim()),
+            Span::styled(value, theme.text()),
+        ])
+    };
+    let lines = vec![
+        Line::styled(" RUNNING OUTSIDE PADDOCK", theme.warning()),
+        Line::raw(""),
+        row("Project", found.name.clone()),
+        row("Folder", super::tilde(&found.path)),
+        row("Kind", found.kind.clone()),
+        row("Ports", ports.join("  ")),
+        row("Process", format!("{} (pid {})", found.command, found.pid)),
+        Line::raw(""),
+        Line::styled(
+            " Started from another terminal or app. Paddock cannot show its",
+            theme.dim(),
+        ),
+        Line::styled(
+            " output, but it can add the project and run it from here.",
+            theme.dim(),
+        ),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled(format!(" {add}"), theme.key()),
+            Span::styled(" add this project   ", theme.dim()),
+            Span::styled(kill, theme.key()),
+            Span::styled(" stop this server", theme.dim()),
+        ]),
+    ];
+    let block = Block::bordered()
+        .title(Span::styled(format!(" {} ", found.name), theme.title()))
+        .border_style(theme.border());
+    Paragraph::new(lines).block(block).render(area, buf);
+}
+
 /// Shown until the first project is added.
 fn render_welcome(app: &App, block: Block, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;

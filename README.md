@@ -32,7 +32,7 @@ paddock --demo                         # look around with made-up projects
 | `s` `x` `r` | start, stop, restart |
 | `K` | kill now, or kill whatever holds the selected port |
 | `p` / `m` | change the port / move to another project |
-| `a` / `D` | add a project folder / remove one from the list |
+| `a` / `D` | add a project (folder picker, or the selected running server) / remove one |
 | `i` | details: folder, pid, uptime, command, CPU, memory |
 | `v` `y` `Y` | select lines, copy them, copy all logs |
 | `,` | settings: theme, keys, splash |
@@ -52,6 +52,8 @@ quit = ["q", "ctrl+q"]
 
 ## What it does
 
+- Find dev servers you already started in other terminals and offer to add
+  their projects.
 - Detect how to run a project from `package.json`, `Cargo.toml`,
   `docker-compose.yml` or a `Procfile`. No config needed for common setups.
 - Start, stop, restart or kill each process; stopping reaches the whole

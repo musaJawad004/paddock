@@ -75,6 +75,7 @@ src/
     logs_view.rs        log pane, cursor, selection, scrollbar
     details.rs          project and process details
     overlay.rs          confirm, input and picker popups
+    folders.rs          folder picker for adding projects
     settings.rs         theme, keys and splash settings, saved at once
     help.rs             the ? popup, built from the keymap
     splash.rs           start-up animation
@@ -116,6 +117,17 @@ config ─────────────────────▶ model
 6. On exit, the supervisor records the code. Non-zero becomes `Crashed`, and
    a restart with backoff (1 s, 2 s, 4 s, max 30 s) follows if the spec has
    `restart = "on-failure"`.
+
+## Discovery
+
+Every port scan also looks at listeners Paddock did not start. If the
+process belongs to the user and runs in a folder below the home folder,
+Paddock walks up to the outermost folder with a project file (package.json,
+Cargo.toml, compose, Procfile, paddock.toml, go.mod, pyproject.toml,
+Gemfile). Folders not in Paddock yet are sent as `Discovered`; system apps
+run from `/` and never match. Paddock cannot adopt a process it did not
+start (its output is not ours to read), so adding such a project offers to
+stop the outside copy and start it here.
 
 ## Process states
 

@@ -267,3 +267,60 @@ fn a_missing_folder_is_refused() {
     );
     assert!(matches!(&events[..], [Event::Notice(text)] if text.contains("does not exist")));
 }
+
+#[test]
+fn servers_started_elsewhere_are_discovered_until_their_project_is_added() {
+    if ports::scan().is_err() {
+        eprintln!("skipped: lsof is not available");
+        return;
+    }
+    let root = tempfile::tempdir().unwrap();
+    let project = root.path().join("side-project");
+    fs::create_dir(&project).unwrap();
+    fs::write(project.join("package.json"), "{}").unwrap();
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    drop(listener);
+
+    // Started by "someone else": a plain child, not through the supervisor.
+    let mut outside = std::process::Command::new("python3")
+        .args([
+            "-c",
+            &format!("import socket,time; s=socket.socket(); s.bind(('127.0.0.1',{port})); s.listen(); time.sleep(30)"),
+        ])
+        .current_dir(&project)
+        .spawn()
+        .unwrap();
+
+    let (tx, _reports) = mpsc::channel(64);
+    let mut supervisor = Supervisor::new(root.path().join("config.toml"), tx);
+    supervisor.set_discover_root(root.path());
+    let mut stats = Stats::new();
+    let mut found = None;
+    for _ in 0..25 {
+        stats.refresh();
+        let events = supervisor.apply_scan(&ports::scan().unwrap(), &stats);
+        found = events.into_iter().find_map(|e| match e {
+            Event::Discovered(list) => list.into_iter().find(|d| d.ports.contains(&port)),
+            _ => None,
+        });
+        if found.is_some() {
+            break;
+        }
+        sleep(Duration::from_millis(200));
+    }
+    let found = found.expect("the outside server was not discovered");
+    assert_eq!(found.name, "side-project");
+    assert_eq!(found.kind, "node");
+    assert_eq!(found.pid, outside.id());
+
+    let events = supervisor.handle(Request::AddProject(project.clone()), Instant::now());
+    let snapshot = events.iter().find_map(|e| match e {
+        Event::Snapshot(s) => Some(s),
+        _ => None,
+    });
+    assert!(snapshot.is_some_and(|s| s.discovered.is_empty()));
+
+    outside.kill().unwrap();
+    outside.wait().unwrap();
+}

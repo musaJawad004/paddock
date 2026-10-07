@@ -120,11 +120,25 @@ pub struct ListeningPort {
     pub owner: Option<ProcessId>,
 }
 
+/// A dev server running on this machine that Paddock did not start, in a
+/// project folder that is not in Paddock yet.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Discovered {
+    pub name: String,
+    pub path: PathBuf,
+    /// "node", "rust"... from the project's files.
+    pub kind: String,
+    pub ports: Vec<u16>,
+    pub pid: u32,
+    pub command: String,
+}
+
 /// Everything the TUI needs to draw, sent once on connect.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct Snapshot {
     pub projects: Vec<ProjectInfo>,
     pub ports: Vec<ListeningPort>,
+    pub discovered: Vec<Discovered>,
 }
 
 /// Unix time in milliseconds. Timestamps cross `ipc`, so they are plain

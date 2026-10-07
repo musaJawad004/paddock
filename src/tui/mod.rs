@@ -11,6 +11,7 @@ pub mod app;
 mod brand;
 mod clipboard;
 mod details;
+mod folders;
 mod help;
 pub mod keys;
 mod logs_view;

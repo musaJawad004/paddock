@@ -7,7 +7,9 @@
 
 use std::collections::HashMap;
 
-use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+use std::path::Path;
+
+use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System, UpdateKind};
 
 use crate::model::ResourceUsage;
 
@@ -35,7 +37,11 @@ impl Stats {
         self.system.refresh_processes_specifics(
             ProcessesToUpdate::All,
             true,
-            ProcessRefreshKind::nothing().with_cpu().with_memory(),
+            ProcessRefreshKind::nothing()
+                .with_cpu()
+                .with_memory()
+                .with_cwd(UpdateKind::OnlyIfNotSet)
+                .with_user(UpdateKind::OnlyIfNotSet),
         );
         self.children.clear();
         for (pid, process) in self.system.processes() {
@@ -88,6 +94,20 @@ impl Stats {
         usage
     }
 
+    /// The folder a process runs in, when the OS lets us see it.
+    pub fn cwd(&self, pid: u32) -> Option<&Path> {
+        self.system.process(sysinfo::Pid::from_u32(pid))?.cwd()
+    }
+
+    /// True if the process belongs to the user running Paddock.
+    pub fn is_mine(&self, pid: u32) -> bool {
+        let me = nix::unistd::getuid().as_raw();
+        self.system
+            .process(sysinfo::Pid::from_u32(pid))
+            .and_then(|p| p.user_id())
+            .is_some_and(|uid| **uid == me)
+    }
+
     pub fn is_alive(&self, pid: u32) -> bool {
         self.system.process(sysinfo::Pid::from_u32(pid)).is_some()
     }
@@ -105,5 +125,7 @@ mod tests {
         assert!(stats.is_alive(me));
         assert!(stats.tree(me).contains(&me));
         assert!(stats.tree_usage(me).memory_bytes > 0);
+        assert!(stats.is_mine(me));
+        assert_eq!(stats.cwd(me), std::env::current_dir().ok().as_deref());
     }
 }

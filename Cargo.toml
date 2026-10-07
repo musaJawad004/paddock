@@ -36,7 +36,7 @@ futures = "0.3.34"
 portable-pty = "0.9.0"
 vt100 = "0.16.2"
 # Same nix version portable-pty uses, so only one copy is compiled.
-nix = { version = "0.28.0", features = ["signal", "process"] }
+nix = { version = "0.28.0", features = ["signal", "process", "user"] }
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
 
 # CLI, config and the IPC wire format

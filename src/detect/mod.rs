@@ -46,6 +46,49 @@ pub fn detect(dir: &Path) -> Vec<ProcessSpec> {
     specs
 }
 
+/// Files that make a folder a project, with the label shown for them.
+const MARKERS: &[(&str, &str)] = &[
+    ("paddock.toml", "paddock"),
+    ("Procfile", "procfile"),
+    ("package.json", "node"),
+    ("Cargo.toml", "rust"),
+    ("compose.yaml", "compose"),
+    ("compose.yml", "compose"),
+    ("docker-compose.yml", "compose"),
+    ("docker-compose.yaml", "compose"),
+    ("go.mod", "go"),
+    ("pyproject.toml", "python"),
+    ("Gemfile", "ruby"),
+];
+
+/// A short label if `dir` looks like a project ("node", "rust"...). Only
+/// checks which files exist; reads nothing.
+pub fn project_kind(dir: &Path) -> Option<&'static str> {
+    MARKERS
+        .iter()
+        .find(|(file, _)| dir.join(file).is_file())
+        .map(|(_, kind)| *kind)
+}
+
+/// The project a working directory belongs to: the outermost folder with a
+/// project file, walking up from `start` but never to `stop` (usually the
+/// home folder) or above it. Outermost, so a server started inside
+/// `apps/web` of a monorepo belongs to the monorepo.
+pub fn project_root(start: &Path, stop: &Path) -> Option<PathBuf> {
+    let mut found = None;
+    let mut dir = Some(start);
+    while let Some(current) = dir {
+        if current == stop || !current.starts_with(stop) {
+            break;
+        }
+        if project_kind(current).is_some() {
+            found = Some(current.to_owned());
+        }
+        dir = current.parent();
+    }
+    found
+}
+
 /// The name shown for a project: its folder name.
 pub fn project_name(dir: &Path) -> String {
     dir.file_name()
@@ -233,6 +276,23 @@ port = 8025
         let mut specs = vec![spec("dev"), spec("dev"), spec("dev")];
         unique_names(&mut specs);
         assert_eq!(names(&specs), vec!["dev", "dev-2", "dev-3"]);
+    }
+
+    #[test]
+    fn project_root_is_the_outermost_project_below_home() {
+        let home = tempfile::tempdir().unwrap();
+        let repo = home.path().join("repo");
+        let web = repo.join("apps/web");
+        fs::create_dir_all(&web).unwrap();
+        fs::write(repo.join("package.json"), "{}").unwrap();
+        fs::write(web.join("package.json"), "{}").unwrap();
+        assert_eq!(project_root(&web, home.path()), Some(repo.clone()));
+        assert_eq!(project_kind(&repo), Some("node"));
+
+        let loose = home.path().join("notes");
+        fs::create_dir_all(&loose).unwrap();
+        assert_eq!(project_root(&loose, home.path()), None);
+        assert_eq!(project_root(Path::new("/"), home.path()), None);
     }
 
     #[test]

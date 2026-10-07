@@ -10,9 +10,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{ListeningPort, ProcessId, ProcessState, ResourceUsage, Snapshot};
+use crate::model::{Discovered, ListeningPort, ProcessId, ProcessState, ResourceUsage, Snapshot};
 
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 4;
 
 /// TUI to backend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -64,6 +64,8 @@ pub enum Event {
         from: ProcessId,
         to: ProcessId,
     },
+    /// Dev servers running outside Paddock in folders it does not know yet.
+    Discovered(Vec<Discovered>),
     /// Something the user should read, e.g. why a request was refused.
     Notice(String),
 }
