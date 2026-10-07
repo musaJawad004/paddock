@@ -5,6 +5,9 @@
 - Unit tests for: each detector (fixture project folders in a tempdir),
   supervisor state transitions, log ring buffer, port parsing (saved `lsof`
   output as fixtures), TUI update logic.
+- Tests that open real sockets (port detection) go in `tests/`, not in an
+  inline `#[cfg(test)]` module. The supply chain scan rejects network APIs in
+  `src/`, including inline tests.
 - TUI rendering: `TestBackend` snapshots with fixed sizes and fixture data.
 - Process tests spawn tiny known commands (`sh -c 'echo hi; sleep 5'`), never
   real dev servers, and always clean up their process group.
