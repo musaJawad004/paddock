@@ -97,6 +97,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" dist/* --title "Paddock $version" --notes "$notes"
       - name: Update the Homebrew formula
         run: |
+          mkdir -p Formula
           python3 scripts/update-formula.py "${GITHUB_REF_NAME#v}" dist > Formula/paddock.rb
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
