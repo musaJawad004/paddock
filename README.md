@@ -31,23 +31,15 @@ brew trust musaJawad004/paddock
 brew install paddock
 ```
 
-**macOS, Linux and Windows, with npm**
-
-```bash
-npm install -g paddock-cli
-```
-
-The npm package carries the right binary for your machine; nothing is
-downloaded at install time.
-
-**From source, anywhere Rust 1.95 or newer runs**
+**macOS, Linux and Windows, with Cargo** (Rust 1.95 or newer)
 
 ```bash
 cargo install --git https://github.com/musaJawad004/paddock --locked
 ```
 
-Or download an archive for your platform from the
+Or download an archive for your platform (Windows included) from the
 [latest release](https://github.com/musaJawad004/paddock/releases/latest).
+An npm package (`npm install -g paddock-cli`) is coming soon.
 
 ## Quick start
 

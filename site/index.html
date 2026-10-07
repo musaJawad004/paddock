@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paddock · every dev server, in one place</title>
+<meta name="description" content="Paddock is a terminal dashboard that finds the dev servers you start anywhere, groups them by project, and stops them when you ask. No network code.">
+<meta property="og:title" content="Paddock">
+<meta property="og:description" content="Every dev server on this machine, in one place.">
+<meta property="og:image" content="https://musajawad004.github.io/paddock/assets/demo.png">
+<link rel="icon" href="data:image/svg+xml,<svg class='x' viewBox='0 0 16 12' width='16' height='12' shape-rendering='crispEdges' role='img' aria-label='Paddy the pony'><rect x='7' y='0' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='0' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='1' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='1' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='1' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='1' width='1.02' height='1.02' fill='%23e8893a'/><rect x='4' y='2' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='2' width='1.02' height='1.02' fill='%236b3410'/><rect x='6' y='2' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='2' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='2' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='2' width='1.02' height='1.02' fill='%23e8893a'/><rect x='10' y='2' width='1.02' height='1.02' fill='%23e8893a'/><rect x='3' y='3' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='3' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='3' width='1.02' height='1.02' fill='%236b3410'/><rect x='6' y='3' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='3' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='3' width='1.02' height='1.02' fill='%231b1410'/><rect x='9' y='3' width='1.02' height='1.02' fill='%23e8893a'/><rect x='10' y='3' width='1.02' height='1.02' fill='%23e8893a'/><rect x='11' y='3' width='1.02' height='1.02' fill='%23e8893a'/><rect x='2' y='4' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='4' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='4' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='4' width='1.02' height='1.02' fill='%236b3410'/><rect x='6' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='10' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='11' y='4' width='1.02' height='1.02' fill='%23e8893a'/><rect x='12' y='4' width='1.02' height='1.02' fill='%23fff4e2'/><rect x='2' y='5' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='5' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='5' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='5' width='1.02' height='1.02' fill='%236b3410'/><rect x='6' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='10' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='11' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='12' y='5' width='1.02' height='1.02' fill='%23e8893a'/><rect x='13' y='5' width='1.02' height='1.02' fill='%23fff4e2'/><rect x='2' y='6' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='6' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='6' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='9' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='10' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='11' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='12' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='13' y='6' width='1.02' height='1.02' fill='%23e8893a'/><rect x='14' y='6' width='1.02' height='1.02' fill='%23fff4e2'/><rect x='2' y='7' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='7' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='7' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='7' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='7' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='7' width='1.02' height='1.02' fill='%23e8893a'/><rect x='8' y='7' width='1.02' height='1.02' fill='%23e8893a'/><rect x='11' y='7' width='1.02' height='1.02' fill='%23e8893a'/><rect x='12' y='7' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='13' y='7' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='14' y='7' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='15' y='7' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='2' y='8' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='8' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='8' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='8' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='8' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='8' width='1.02' height='1.02' fill='%23e8893a'/><rect x='12' y='8' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='13' y='8' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='14' y='8' width='1.02' height='1.02' fill='%231b1410'/><rect x='15' y='8' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='2' y='9' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='9' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='9' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='9' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='9' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='9' width='1.02' height='1.02' fill='%23e8893a'/><rect x='13' y='9' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='14' y='9' width='1.02' height='1.02' fill='%23f3c08f'/><rect x='2' y='10' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='10' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='10' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='10' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='10' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='10' width='1.02' height='1.02' fill='%23e8893a'/><rect x='2' y='11' width='1.02' height='1.02' fill='%236b3410'/><rect x='3' y='11' width='1.02' height='1.02' fill='%236b3410'/><rect x='4' y='11' width='1.02' height='1.02' fill='%236b3410'/><rect x='5' y='11' width='1.02' height='1.02' fill='%23e8893a'/><rect x='6' y='11' width='1.02' height='1.02' fill='%23e8893a'/><rect x='7' y='11' width='1.02' height='1.02' fill='%23e8893a'/></svg>">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="bar">
+  <span class="dots"><i></i><i></i><i></i></span>
+  <span class="path">paddock · ~</span>
+  <nav>
+    <a href="#install">install</a>
+    <a href="#how">how it works</a>
+    <a href="#keys">keys</a>
+    <a href="https://github.com/musaJawad004/paddock">github ↗</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <img class="banner" src="assets/banner.gif" alt="Paddy the pony jumps port hurdles next to the Paddock logo" width="1280" height="380">
+    <p class="lead"><span class="prompt">$</span> every dev server on this machine, in one place<span class="cursor">█</span></p>
+    <p class="sub">A terminal dashboard that finds the servers you start in any terminal, editor or agent,
+      groups them by project, and stops them when you ask. It never starts anything, never touches
+      your shell, and has no network code.</p>
+    <div class="badges">
+      <a href="https://github.com/musaJawad004/paddock/releases/latest"><img alt="release" src="https://img.shields.io/github/v/release/musaJawad004/paddock?style=flat-square&color=f0883e&labelColor=1b1f27"></a>
+      <img alt="macOS, Linux, Windows" src="https://img.shields.io/badge/macOS%20%C2%B7%20Linux%20%C2%B7%20Windows-7ee787?style=flat-square&labelColor=1b1f27">
+      <img alt="MIT" src="https://img.shields.io/badge/license-MIT-e6e1d6?style=flat-square&labelColor=1b1f27">
+    </div>
+  </section>
+
+  <section class="window" aria-label="Installing with Homebrew">
+    <div class="titlebar"><span class="dots"><i></i><i></i><i></i></span><span>zsh</span></div>
+    <pre class="term" id="typed" aria-live="polite"></pre>
+  </section>
+
+  <section id="install">
+    <h2><span class="hash">#</span> install</h2>
+    <div class="tabs" role="tablist">
+      <button role="tab" aria-selected="true" data-tab="brew">homebrew</button>
+      <button role="tab" aria-selected="false" data-tab="cargo">cargo</button>
+      <button role="tab" aria-selected="false" data-tab="download">download</button>
+    </div>
+    <div class="panel" data-panel="brew">
+      <p class="note">macOS and Linux</p>
+      <div class="code"><pre>brew tap musaJawad004/paddock https://github.com/musaJawad004/paddock
+brew trust musaJawad004/paddock
+brew install paddock</pre><button class="copy">copy</button></div>
+    </div>
+    <div class="panel" data-panel="cargo" hidden>
+      <p class="note">macOS, Linux and Windows, with Rust 1.95 or newer</p>
+      <div class="code"><pre>cargo install --git https://github.com/musaJawad004/paddock --locked</pre><button class="copy">copy</button></div>
+    </div>
+    <div class="panel" data-panel="download" hidden>
+      <p class="note">Unpack, put <code>paddock</code> on your PATH. Every archive has a .sha256 next to it.</p>
+      <ul class="files">
+        <li><a href="https://github.com/musaJawad004/paddock/releases/latest/download/paddock-aarch64-apple-darwin.tar.gz">macOS · Apple silicon</a></li>
+        <li><a href="https://github.com/musaJawad004/paddock/releases/latest/download/paddock-x86_64-apple-darwin.tar.gz">macOS · Intel</a></li>
+        <li><a href="https://github.com/musaJawad004/paddock/releases/latest/download/paddock-x86_64-unknown-linux-gnu.tar.gz">Linux · x64</a></li>
+        <li><a href="https://github.com/musaJawad004/paddock/releases/latest/download/paddock-aarch64-unknown-linux-gnu.tar.gz">Linux · arm64</a></li>
+        <li><a href="https://github.com/musaJawad004/paddock/releases/latest/download/paddock-x86_64-pc-windows-msvc.zip">Windows · x64</a></li>
+      </ul>
+    </div>
+    <p class="then">then run <code>paddock</code>. Servers you already have running show up within two seconds.</p>
+  </section>
+
+  <section>
+    <h2><span class="hash">#</span> what you see</h2>
+    <figure class="demo">
+      <img src="assets/demo.gif" alt="Paddock listing servers by project, showing details, stopping a server and the help popup" width="1020" height="676" loading="lazy">
+      <figcaption>recorded with <code>paddock --demo</code></figcaption>
+    </figure>
+    <div class="window small">
+      <div class="titlebar"><span class="dots"><i></i><i></i><i></i></span><span>paddock list</span></div>
+<pre class="term"><span class="p">$</span> paddock list
+<b>storefront</b> <span class="d">(~/Projects/storefront, node)</span>
+  dev            <span class="a">:3000</span>          pid 41000   yarn next dev
+  api            <span class="a">:4000</span>          pid 41137   yarn tsx watch src/index.ts
+
+<b>mobile-app</b> <span class="d">(~/Projects/mobile-app, node)</span>
+  start          <span class="a">:8081</span>          pid 48120   npx expo start</pre>
+    </div>
+  </section>
+
+  <section id="how">
+    <h2><span class="hash">#</span> how it works</h2>
+    <img class="diagram" src="assets/how-it-works.svg" alt="Servers started in a terminal, an editor and Claude Code are found through ports and the process table, grouped into the dashboard, and stopped from it" width="1200" height="860" loading="lazy">
+    <ol class="steps">
+      <li><b>discovery.</b> Every two seconds Paddock asks <code>lsof</code> (<code>netstat</code> on Windows) who listens on which port, and the process table who started them. A listener counts when it is yours and runs below your home folder.</li>
+      <li><b>one process tree is one server.</b> <code>yarn dev</code> and the <code>sh</code>, <code>vite</code> and <code>esbuild</code> under it are one server called <code>dev</code>. Your shell, editor, terminal or coding agent is never part of a server.</li>
+      <li><b>stop and kill.</b> <kbd>x</kbd> sends SIGTERM to the whole tree and SIGKILL after five seconds; <kbd>K</kbd> kills at once. Each asks first, and Paddock checks the process is still the one you saw.</li>
+    </ol>
+  </section>
+
+  <section id="keys">
+    <h2><span class="hash">#</span> keys</h2>
+    <div class="help">
+      <div class="help-title">Keys</div>
+      <div class="keys"><div class="key"><kbd>↑ ↓  k j</kbd><span>move</span></div><div class="key"><kbd>tab</kbd><span>servers / ports</span></div><div class="key"><kbd>enter</kbd><span>port → its server</span></div><div class="key"><kbd>o</kbd><span>open in the browser</span></div><div class="key"><kbd>y</kbd><span>copy its URL</span></div><div class="key"><kbd>Y</kbd><span>copy its command</span></div><div class="key"><kbd>x</kbd><span>stop: SIGTERM, SIGKILL after 5 s</span></div><div class="key"><kbd>K</kbd><span>kill it now</span></div><div class="key"><kbd>,</kbd><span>settings: theme, keys, splash</span></div><div class="key"><kbd>?</kbd><span>help</span></div><div class="key"><kbd>q</kbd><span>quit</span></div></div>
+      <p class="d">Every key can be rebound in settings (<kbd>,</kbd>) or in <code>~/.config/paddock/config.toml</code>.</p>
+    </div>
+    <h3>eight themes</h3>
+    <div class="swatches"><div class="swatch" style="background:#15171c"><span style="color:#f0883e">●</span><span style="color:#7ee787">●</span><code style="color:#f0883e">paddock</code></div><div class="swatch" style="background:#000000"><span style="color:#00d7d7">●</span><span style="color:#5fd75f">●</span><code style="color:#00d7d7">terminal</code></div><div class="swatch" style="background:#1e1e2e"><span style="color:#cba6f7">●</span><span style="color:#a6e3a1">●</span><code style="color:#cba6f7">catppuccin-mocha</code></div><div class="swatch" style="background:#282a36"><span style="color:#bd93f9">●</span><span style="color:#50fa7b">●</span><code style="color:#bd93f9">dracula</code></div><div class="swatch" style="background:#2e3440"><span style="color:#88c0d0">●</span><span style="color:#a3be8c">●</span><code style="color:#88c0d0">nord</code></div><div class="swatch" style="background:#282828"><span style="color:#fe8019">●</span><span style="color:#b8bb26">●</span><code style="color:#fe8019">gruvbox</code></div><div class="swatch" style="background:#1a1b26"><span style="color:#7aa2f7">●</span><span style="color:#9ece6a">●</span><code style="color:#7aa2f7">tokyo-night</code></div><div class="swatch" style="background:#fdf6e3"><span style="color:#268bd2">●</span><span style="color:#859900">●</span><code style="color:#268bd2">solarized-light</code></div></div>
+  </section>
+
+  <section class="promise">
+    <h2><span class="hash">#</span> what paddock never does</h2>
+    <ul>
+      <li><span class="x">✗</span> start, restart or wrap your commands</li>
+      <li><span class="x">✗</span> add shell functions, aliases or PATH changes</li>
+      <li><span class="x">✗</span> stop anything you did not confirm</li>
+      <li><span class="x">✗</span> open a network connection or send telemetry</li>
+    </ul>
+    <p class="d">A CI scan fails the build if network code is ever added.</p>
+  </section>
+</main>
+
+<footer>
+  <svg class="paddy" viewBox="0 0 16 12" width="64" height="48" shape-rendering="crispEdges" role="img" aria-label="Paddy the pony"><rect x="7" y="0" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="0" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="1" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="1" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="1" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="1" width="1.02" height="1.02" fill="#e8893a"/><rect x="4" y="2" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="2" width="1.02" height="1.02" fill="#6b3410"/><rect x="6" y="2" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="2" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="2" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="2" width="1.02" height="1.02" fill="#e8893a"/><rect x="10" y="2" width="1.02" height="1.02" fill="#e8893a"/><rect x="3" y="3" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="3" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="3" width="1.02" height="1.02" fill="#6b3410"/><rect x="6" y="3" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="3" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="3" width="1.02" height="1.02" fill="#1b1410"/><rect x="9" y="3" width="1.02" height="1.02" fill="#e8893a"/><rect x="10" y="3" width="1.02" height="1.02" fill="#e8893a"/><rect x="11" y="3" width="1.02" height="1.02" fill="#e8893a"/><rect x="2" y="4" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="4" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="4" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="4" width="1.02" height="1.02" fill="#6b3410"/><rect x="6" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="10" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="11" y="4" width="1.02" height="1.02" fill="#e8893a"/><rect x="12" y="4" width="1.02" height="1.02" fill="#fff4e2"/><rect x="2" y="5" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="5" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="5" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="5" width="1.02" height="1.02" fill="#6b3410"/><rect x="6" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="10" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="11" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="12" y="5" width="1.02" height="1.02" fill="#e8893a"/><rect x="13" y="5" width="1.02" height="1.02" fill="#fff4e2"/><rect x="2" y="6" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="6" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="6" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="9" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="10" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="11" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="12" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="13" y="6" width="1.02" height="1.02" fill="#e8893a"/><rect x="14" y="6" width="1.02" height="1.02" fill="#fff4e2"/><rect x="2" y="7" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="7" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="7" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="7" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="7" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="7" width="1.02" height="1.02" fill="#e8893a"/><rect x="8" y="7" width="1.02" height="1.02" fill="#e8893a"/><rect x="11" y="7" width="1.02" height="1.02" fill="#e8893a"/><rect x="12" y="7" width="1.02" height="1.02" fill="#f3c08f"/><rect x="13" y="7" width="1.02" height="1.02" fill="#f3c08f"/><rect x="14" y="7" width="1.02" height="1.02" fill="#f3c08f"/><rect x="15" y="7" width="1.02" height="1.02" fill="#f3c08f"/><rect x="2" y="8" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="8" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="8" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="8" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="8" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="8" width="1.02" height="1.02" fill="#e8893a"/><rect x="12" y="8" width="1.02" height="1.02" fill="#f3c08f"/><rect x="13" y="8" width="1.02" height="1.02" fill="#f3c08f"/><rect x="14" y="8" width="1.02" height="1.02" fill="#1b1410"/><rect x="15" y="8" width="1.02" height="1.02" fill="#f3c08f"/><rect x="2" y="9" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="9" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="9" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="9" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="9" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="9" width="1.02" height="1.02" fill="#e8893a"/><rect x="13" y="9" width="1.02" height="1.02" fill="#f3c08f"/><rect x="14" y="9" width="1.02" height="1.02" fill="#f3c08f"/><rect x="2" y="10" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="10" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="10" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="10" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="10" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="10" width="1.02" height="1.02" fill="#e8893a"/><rect x="2" y="11" width="1.02" height="1.02" fill="#6b3410"/><rect x="3" y="11" width="1.02" height="1.02" fill="#6b3410"/><rect x="4" y="11" width="1.02" height="1.02" fill="#6b3410"/><rect x="5" y="11" width="1.02" height="1.02" fill="#e8893a"/><rect x="6" y="11" width="1.02" height="1.02" fill="#e8893a"/><rect x="7" y="11" width="1.02" height="1.02" fill="#e8893a"/></svg>
+  <p>paddock · MIT · built with Rust and ratatui · <a href="https://github.com/musaJawad004/paddock">source</a></p>
+</footer>
+<script src="main.js"></script>
+</body>
+</html>
