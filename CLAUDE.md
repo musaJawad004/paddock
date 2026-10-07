@@ -2,10 +2,9 @@
 
 A terminal dashboard for the dev servers running on this machine. Paddock
 finds them (lsof plus the process table), groups them by project, shows
-ports, command, folder, uptime, CPU, memory and live logs, and stops them
-when the user confirms. It never starts anything on its own. Logs come from
-`paddock run`, a `script` wrapper the user's shell calls (`paddock init`).
-Local only: no network code, no telemetry.
+ports, command, folder, uptime, CPU and memory, and stops them when the
+user confirms. It never starts anything, never touches the user's shell,
+and shows no logs. Local only: no network code, no telemetry.
 
 Design and roadmap: `docs/ARCHITECTURE.md`. Read it before changing module
 boundaries.
@@ -13,8 +12,8 @@ boundaries.
 ## Stack
 
 Rust (edition 2024, stable), ratatui 0.30 with crossterm, tokio, sysinfo,
-clap, serde and toml. macOS, Linux (with lsof) and Windows (netstat; no log
-capture yet). Check Windows with
+clap, serde and toml. macOS, Linux (with lsof) and Windows (netstat). Check
+Windows with
 `cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings`.
 
 Releases: push a `vX.Y.Z` tag matching Cargo.toml. `.github/workflows/release.yml`
@@ -29,8 +28,6 @@ how-it-works.svg).
 ```bash
 cargo run                                   # the dashboard
 cargo run -- list                           # running servers, printed once
-cargo run -- run npm run dev                # run a command with its log captured
-cargo run -- init zsh                       # shell code that captures dev servers
 cargo run -- --demo                         # made-up servers
 cargo run -- --no-splash --theme nord       # one-off flags; --config-path prints the config file
 cargo install --path . --locked             # install so `paddock` works anywhere
@@ -66,11 +63,11 @@ pure and unit tested with made-up process tables), the TUI shows them, and
 stop, kill and free-port work through `monitor::actions`, which re-checks
 every pid before signalling it. `tests/monitor.rs` runs real processes.
 
-Paddock never starts processes on its own. Do not add that without
-discussing it with the user: starting projects was removed on purpose (it
-started duplicate servers). Logs exist only for servers started through
-`paddock run` (`capture.rs`); a running process's output cannot be read
-afterwards, so do not try.
+Paddock never starts processes and never wraps the user's commands. Both
+were tried and removed on purpose: starting projects created duplicate
+servers, and log capture through `paddock run` / `paddock init` meant
+shell functions around npm, yarn and cargo, which the user did not want on
+anyone's machine. Do not bring either back without asking the user.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in

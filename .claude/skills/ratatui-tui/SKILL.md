@@ -94,7 +94,7 @@ Rules for the loop:
 ```rust
 let [sidebar, main] = Layout::horizontal([Constraint::Length(28), Constraint::Fill(1)])
     .areas(area);
-let [logs, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
+let [details, status] = Layout::vertical([Constraint::Fill(1), Constraint::Length(1)])
     .areas(main);
 ```
 

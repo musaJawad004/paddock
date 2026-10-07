@@ -20,7 +20,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .iter()
         .map(|a| (app.keymap.describe(*a), a.description()))
         .collect();
-    entries.push(("enter".into(), "go to server / confirm"));
+    entries.push(("enter".into(), "jump to server / confirm"));
     entries.push(("esc".into(), "back / cancel"));
     entries.push(("ctrl+c".into(), "quit, always"));
 
@@ -54,7 +54,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     lines.push(Line::raw(""));
     lines.push(Line::styled(
         format!(
-            " Data: {}. Logs show for servers started with paddock run.",
+            " Data: {}. Servers appear on their own within 2 seconds.",
             app.source
         ),
         theme.dim(),

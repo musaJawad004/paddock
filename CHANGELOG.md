@@ -6,6 +6,16 @@ All notable changes to Paddock are listed here. The format follows
 
 ## Unreleased
 
+## 0.2.0 (2026-10-07)
+
+- Removed log capture: `paddock run`, `paddock init` and the log pane are
+  gone. Paddock no longer adds shell functions around npm, yarn, pnpm, bun,
+  npx, cargo or deno, never sits in front of a command, and writes no log
+  files. If you added `eval "$(paddock init zsh)"` to a shell config, delete
+  that line; logs from 0.1.0 can be removed with
+  `rm -rf ~/.local/state/paddock`.
+- The main pane shows the selected server's full details again.
+
 ## 0.1.0 (2026-10-07)
 
 - Runs on macOS, Linux and Windows. On Windows, ports come from netstat and

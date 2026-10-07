@@ -4,10 +4,6 @@
 //! `sysinfo` for the process table, then `servers::collect` groups them
 //! into projects and servers. The TUI gets a full `Snapshot` each time.
 //!
-//! The TUI follows one server at a time. If that server was started through
-//! `paddock run`, its log file is read every 250 ms and new lines are sent
-//! as `Event::Logs`.
-//!
 //! Requests from the TUI stop or kill what is already running, through
 //! `actions`, which re-checks every pid before signalling it. A stopped
 //! server that is still there after five seconds gets SIGKILL.
@@ -15,8 +11,6 @@
 //! Safety rules for everything in here: `.claude/rules/process-safety.md`.
 
 pub mod actions;
-pub mod follow;
-pub mod logs;
 pub mod ports;
 pub mod servers;
 pub mod stats;
@@ -28,24 +22,19 @@ use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::{self, Instant};
 
-use crate::capture;
 use crate::ipc::protocol::{Event, Request};
 use crate::ipc::transport::ServerEnd;
 use crate::model::{ServerId, Snapshot};
 use actions::How;
-use follow::LogFollower;
 use stats::Stats;
 
 const SCAN: Duration = Duration::from_secs(2);
-const LOG_POLL: Duration = Duration::from_millis(250);
 const STOP_GRACE: Duration = Duration::from_secs(5);
 
 /// One scan: refresh the process table, read the ports, group them.
-/// `logs_dir` is where `paddock run` writes logs (`capture::logs_dir`).
 pub fn scan(
     stats: &mut Stats,
     home: &Path,
-    logs_dir: Option<&Path>,
     stopping: &HashSet<ServerId>,
 ) -> Result<Snapshot, String> {
     stats.refresh();
@@ -53,7 +42,6 @@ pub fn scan(
     let protected: HashSet<u32> = stats.own_line().into_iter().collect();
     let cx = servers::Context {
         home,
-        logs_dir,
         stopping,
         protected: &protected,
     };
@@ -86,23 +74,14 @@ pub async fn run(mut server: ServerEnd) {
         return;
     };
     let mut timer = time::interval(SCAN);
-    let mut log_timer = time::interval(LOG_POLL);
     let (scan_tx, mut scan_rx) = mpsc::channel::<(Stats, Result<Snapshot, String>)>(1);
     let mut stats = Some(Stats::new());
     let mut stopping: HashMap<ServerId, Instant> = HashMap::new();
-    let mut last = Snapshot::default();
-    let mut wanted: Option<ServerId> = None;
-    let mut follower: Option<LogFollower> = None;
     let mut lsof_error_shown = false;
 
     loop {
         let events = tokio::select! {
             request = server.requests.recv() => match request {
-                Some(Request::Follow(id)) => {
-                    wanted = id;
-                    follower = None;
-                    tokio::task::block_in_place(|| start_following(&last, wanted, &mut follower))
-                }
                 Some(request) => {
                     let events = tokio::task::block_in_place(|| handle(request, &mut stopping));
                     timer.reset_immediately();
@@ -110,18 +89,13 @@ pub async fn run(mut server: ServerEnd) {
                 }
                 None => return,
             },
-            _ = log_timer.tick(), if follower.is_some() => match &mut follower {
-                Some(f) => tokio::task::block_in_place(|| f.poll()).into_iter().collect(),
-                None => Vec::new(),
-            },
             _ = timer.tick() => {
                 if let Some(mut taken) = stats.take() {
                     let tx = scan_tx.clone();
                     let home = home.clone();
                     let marked: HashSet<ServerId> = stopping.keys().copied().collect();
                     tokio::task::spawn_blocking(move || {
-                        let logs_dir = capture::logs_dir();
-                        let result = scan(&mut taken, &home, logs_dir.as_deref(), &marked);
+                        let result = scan(&mut taken, &home, &marked);
                         let _ = tx.blocking_send((taken, result));
                     });
                 }
@@ -132,13 +106,6 @@ pub async fn run(mut server: ServerEnd) {
                 match result {
                     Ok(snapshot) => {
                         let mut events = tokio::task::block_in_place(|| escalate(&snapshot, &mut stopping));
-                        last = snapshot.clone();
-                        // The followed server may have just appeared, or got a log.
-                        if follower.is_none() {
-                            events.extend(tokio::task::block_in_place(|| {
-                                start_following(&last, wanted, &mut follower)
-                            }));
-                        }
                         events.insert(0, Event::Snapshot(snapshot));
                         events
                     }
@@ -158,28 +125,6 @@ pub async fn run(mut server: ServerEnd) {
     }
 }
 
-/// Opens the log of the wanted server, if it has one, and sends its tail.
-fn start_following(
-    snapshot: &Snapshot,
-    wanted: Option<ServerId>,
-    follower: &mut Option<LogFollower>,
-) -> Vec<Event> {
-    let Some(id) = wanted else {
-        return Vec::new();
-    };
-    let Some(path) = snapshot
-        .servers()
-        .find(|s| s.id == id)
-        .and_then(|s| s.log.clone())
-    else {
-        return Vec::new();
-    };
-    let mut started = LogFollower::new(id, path);
-    let events = started.poll().into_iter().collect();
-    *follower = Some(started);
-    events
-}
-
 fn handle(request: Request, stopping: &mut HashMap<ServerId, Instant>) -> Vec<Event> {
     let notice = match request {
         Request::Stop(id) => match actions::signal_server(id, How::Stop) {
@@ -196,7 +141,6 @@ fn handle(request: Request, stopping: &mut HashMap<ServerId, Instant>) -> Vec<Ev
             }
             Err(err) => format!("Could not kill it: {err}."),
         },
-        Request::Follow(_) => return Vec::new(),
     };
     vec![Event::Notice(notice)]
 }

@@ -1,6 +1,6 @@
 [package]
 name = "paddock"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.95"
 description = "Every dev server on this machine, in one place: a terminal dashboard that finds, groups and stops them"

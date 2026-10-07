@@ -2,9 +2,6 @@
 //!
 //! - `paddock`: the dashboard of every dev server running on this machine.
 //! - `paddock list`: the same list printed once, without the dashboard.
-//! - `paddock run <command>`: run a dev server with its logs captured.
-//! - `paddock init <shell>`: shell code that captures every dev server
-//!   started from that shell (see `capture`).
 //! - `paddock --demo`: the dashboard on made-up servers.
 //!
 //! Flags: `--no-splash`, `--theme <name>` for one run, `--config-path` to
@@ -19,7 +16,7 @@ use color_eyre::eyre::eyre;
 
 use crate::monitor::stats::Stats;
 use crate::tui::theme::PALETTES;
-use crate::{capture, config, demo, ipc, monitor, tui};
+use crate::{config, demo, ipc, monitor, tui};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -30,9 +27,7 @@ use crate::{capture, config, demo, ipc, monitor, tui};
         Paddock finds the servers you start in any terminal, groups them by \
         project, and lets you open, copy, stop or kill them. It never starts \
         anything and has no network code. Inside, press ? for keys and , for \
-        settings.\n\n\
-        To see logs too, start servers with `paddock run`, or add \
-        `eval \"$(paddock init zsh)\"` to ~/.zshrc once."
+        settings."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -59,29 +54,6 @@ pub struct Cli {
 enum Command {
     /// Print the running dev servers once and exit.
     List,
-    /// Run a dev server with its logs captured for Paddock.
-    ///
-    /// The command runs in this terminal exactly as without Paddock; a copy
-    /// of its output goes to a private log file the dashboard shows.
-    Run {
-        /// Capture only commands that start a server (npm run dev, cargo
-        /// run...); run everything else untouched. Used by `paddock init`.
-        #[arg(long)]
-        auto: bool,
-        /// Capture even when not in a terminal. For tests: stdin must then
-        /// be a terminal or /dev/null, or macOS script refuses to start.
-        #[arg(long, hide = true)]
-        always: bool,
-        /// The command, e.g. `paddock run npm run dev`.
-        #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
-        command: Vec<String>,
-    },
-    /// Print shell code that captures logs of every dev server started from
-    /// that shell. Add `eval "$(paddock init zsh)"` to ~/.zshrc.
-    Init {
-        /// zsh, bash or fish.
-        shell: String,
-    },
 }
 
 fn theme_name(name: &str) -> Result<String, String> {
@@ -100,21 +72,6 @@ pub async fn run() -> color_eyre::Result<()> {
     }
     match cli.command {
         Some(Command::List) => list(),
-        Some(Command::Run {
-            auto,
-            always,
-            command,
-        }) => {
-            let err = capture::run(&command, &capture::RunOptions { auto, always });
-            Err(eyre!("could not run {}: {err}", command.join(" ")))
-        }
-        Some(Command::Init { shell }) => match capture::init_script(&shell) {
-            Some(script) => {
-                print!("{script}");
-                Ok(())
-            }
-            None => Err(eyre!("unknown shell \"{shell}\": use zsh, bash or fish")),
-        },
         None => dashboard(cli.demo, cli.no_splash, cli.theme).await,
     }
 }
@@ -151,9 +108,7 @@ async fn dashboard(demo: bool, no_splash: bool, theme: Option<String>) -> color_
 fn list() -> color_eyre::Result<()> {
     let home = monitor::home().ok_or_else(|| eyre!("HOME is not set"))?;
     let mut stats = Stats::new();
-    let logs_dir = capture::logs_dir();
-    let snapshot = monitor::scan(&mut stats, &home, logs_dir.as_deref(), &HashSet::new())
-        .map_err(|e| eyre!(e))?;
+    let snapshot = monitor::scan(&mut stats, &home, &HashSet::new()).map_err(|e| eyre!(e))?;
     if snapshot.projects.is_empty() {
         println!("No dev servers running.");
     }
@@ -169,13 +124,11 @@ fn list() -> color_eyre::Result<()> {
         );
         for server in &project.servers {
             let ports: Vec<String> = server.ports.iter().map(|p| format!(":{p}")).collect();
-            let logs = if server.log.is_some() { "logs" } else { "" };
             println!(
-                "  {:<14} {:<14} pid {:<7} {:<5} {}",
+                "  {:<14} {:<14} pid {:<7} {}",
                 server.name,
                 ports.join(" "),
                 server.id.pid,
-                logs,
                 server.command
             );
         }

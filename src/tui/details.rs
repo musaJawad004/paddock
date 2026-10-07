@@ -1,19 +1,20 @@
-//! Main pane, top: the selected server at a glance. Where it runs, since
-//! when, which ports, what it costs. Before the first scan it says it is
-//! looking; with no servers it shows Paddy and how servers get here.
+//! Main pane: everything Paddock can see about the selected server. Where
+//! it runs, since when, which processes and ports, what it costs, and the
+//! keys to act on it. Before the first scan it says it is looking; with no
+//! servers it shows Paddy and how servers get here.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Paragraph, Widget};
+use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use super::app::App;
+use super::keys::Action;
 use super::sidebar::format_memory;
-use super::{brand, tilde};
+use super::{brand, fit, tilde};
 use crate::model::{ServerState, now_ms};
 
-/// Rows the server header takes, borders included.
-pub const HEIGHT: u16 = 7;
+const LABEL_WIDTH: usize = 10;
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
@@ -22,11 +23,27 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         render_empty(app, block, area, buf);
         return;
     };
+    let project = app
+        .snapshot
+        .projects
+        .iter()
+        .find(|p| p.servers.iter().any(|s| s.id == server.id));
+
+    let row = |label: &str, value: Span<'static>| {
+        Line::from(vec![
+            Span::styled(format!(" {}", fit(label, LABEL_WIDTH)), theme.dim()),
+            value,
+        ])
+    };
+    let text = |value: String| Span::styled(value, theme.text());
 
     let (state, state_style) = match server.state {
         ServerState::Running => {
             let seconds = (now_ms() / 1000).saturating_sub(server.id.started);
-            (format!("● running {}", duration(seconds)), theme.success())
+            (
+                format!("● running for {}", duration(seconds)),
+                theme.success(),
+            )
         }
         ServerState::Stopping => ("◐ stopping".to_owned(), theme.warning()),
     };
@@ -35,40 +52,70 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .iter()
         .map(|p| format!("http://localhost:{p}"))
         .collect();
-    let label = |text: &str| Span::styled(format!(" {text:<9}"), theme.dim());
-    let lines = vec![
+    let processes = if server.processes == 1 {
+        "1 (just this one)".to_owned()
+    } else {
+        format!(
+            "{} (this one and {} below it)",
+            server.processes,
+            server.processes - 1
+        )
+    };
+
+    let mut lines = vec![
         Line::from(vec![
-            Span::styled(format!(" {} ", app.server_label(server.id)), theme.title()),
-            Span::styled(state, state_style),
-        ]),
-        Line::from(vec![
-            label("URL"),
-            Span::styled(urls.join("  "), theme.info()),
-        ]),
-        Line::from(vec![
-            label("Command"),
-            Span::styled(short_command(&server.command), theme.text()),
-        ]),
-        Line::from(vec![
-            label("Folder"),
-            Span::styled(tilde(&server.cwd), theme.text()),
-        ]),
-        Line::from(vec![
-            label("Process"),
             Span::styled(
-                format!(
-                    "pid {} · {} process{} · {:.1}% CPU · {}",
-                    server.id.pid,
-                    server.processes,
-                    if server.processes == 1 { "" } else { "es" },
-                    server.usage.cpu_percent,
-                    format_memory(server.usage.memory_bytes)
-                ),
-                theme.text(),
+                format!(" {}", project.map_or("", |p| p.name.as_str())),
+                theme.accent(),
             ),
+            Span::styled(" › ", theme.dim()),
+            Span::styled(server.name.clone(), theme.title()),
         ]),
+        Line::raw(""),
+        row("State", Span::styled(state, state_style)),
+        row("URL", Span::styled(urls.join("  "), theme.info())),
+        row("Command", text(short_command(&server.command))),
+        row("Folder", text(tilde(&server.cwd))),
     ];
-    Paragraph::new(lines).block(block).render(area, buf);
+    if let Some(project) = project.filter(|p| p.path != server.cwd) {
+        lines.push(row(
+            "Project",
+            text(format!("{} ({})", tilde(&project.path), project.kind)),
+        ));
+    }
+    lines.extend([
+        row("PID", text(server.id.pid.to_string())),
+        row("Processes", text(processes)),
+        row("CPU", text(format!("{:.1}%", server.usage.cpu_percent))),
+        row("Memory", text(format_memory(server.usage.memory_bytes))),
+        Line::raw(""),
+        keys_line(app),
+    ]);
+
+    Paragraph::new(lines)
+        .wrap(Wrap { trim: false })
+        .block(block.title(Span::styled(" Server ", theme.title())))
+        .render(area, buf);
+}
+
+fn keys_line(app: &App) -> Line<'static> {
+    let theme = app.theme;
+    let mut spans = vec![Span::raw(" ")];
+    for (action, label) in [
+        (Action::Open, "open"),
+        (Action::Copy, "copy URL"),
+        (Action::CopyAll, "copy command"),
+        (Action::Stop, "stop"),
+        (Action::Kill, "kill"),
+    ] {
+        let key = app.keymap.first(action);
+        if key.is_empty() {
+            continue;
+        }
+        spans.push(Span::styled(key, theme.key()));
+        spans.push(Span::styled(format!(" {label}   "), theme.dim()));
+    }
+    Line::from(spans)
 }
 
 fn render_empty(app: &App, block: Block, area: Rect, buf: &mut Buffer) {
@@ -88,17 +135,6 @@ fn render_empty(app: &App, block: Block, area: Rect, buf: &mut Buffer) {
             )
             .centered(),
             Line::styled("and it shows up here within two seconds.", theme.dim()).centered(),
-            Line::raw(""),
-            Line::styled(
-                "To see its logs here too, start it with paddock run,",
-                theme.dim(),
-            )
-            .centered(),
-            Line::styled(
-                "or add  eval \"$(paddock init zsh)\"  to ~/.zshrc once.",
-                theme.dim(),
-            )
-            .centered(),
         ]);
     }
     Paragraph::new(lines).block(block).render(area, buf);

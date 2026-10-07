@@ -246,17 +246,6 @@ impl Theme {
         }
     }
 
-    /// Lines picked for copying in the log pane.
-    pub fn marked(self) -> Style {
-        if self.color {
-            Style::new()
-                .bg(self.color(self.palette.selection))
-                .fg(self.color(self.palette.accent))
-        } else {
-            Style::new().add_modifier(Modifier::REVERSED)
-        }
-    }
-
     pub fn dim(self) -> Style {
         if self.color {
             self.fg(self.palette.dim)

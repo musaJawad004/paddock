@@ -1,7 +1,6 @@
 //! Made-up servers for `paddock --demo`: the same `ipc` protocol as the
 //! monitor, with nothing real behind it. Stop and kill change the fake
-//! data, followed servers stream fake logs; nothing on the machine is
-//! touched. One server has no log, to show what that looks like.
+//! data; nothing on the machine is touched.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -40,7 +39,6 @@ pub async fn run(mut server: ServerEnd) {
 struct Demo {
     projects: Vec<Project>,
     stopping: Vec<(ServerId, Instant)>,
-    following: Option<ServerId>,
     ticks: u32,
 }
 
@@ -55,7 +53,6 @@ fn server(
     folder: &str,
     ports: &[u16],
     processes: usize,
-    log: bool,
 ) -> Server {
     let started = now_ms() / 1000 - 60 * (3 + u64::from(pid % 40));
     Server {
@@ -67,7 +64,6 @@ fn server(
         processes,
         usage: usage(pid, 0),
         state: ServerState::Running,
-        log: log.then(|| PathBuf::from(format!("/demo/{pid}.log"))),
     }
 }
 
@@ -90,16 +86,6 @@ fn usage(pid: u32, ticks: u32) -> ResourceUsage {
     }
 }
 
-/// Fake output, by server name.
-fn script(name: &str) -> &'static [&'static str] {
-    match name {
-        "start" => EXPO,
-        "dev" => NEXT,
-        "api" => API,
-        _ => &[],
-    }
-}
-
 impl Demo {
     fn new() -> Self {
         Self {
@@ -114,7 +100,6 @@ impl Demo {
                         "billing",
                         &[8080],
                         2,
-                        false,
                     )],
                 ),
                 project(
@@ -127,22 +112,13 @@ impl Demo {
                         "mobile-app",
                         &[8081],
                         6,
-                        true,
                     )],
                 ),
                 project(
                     "storefront",
                     "node",
                     vec![
-                        server(
-                            41000,
-                            "dev",
-                            "yarn next dev",
-                            "storefront",
-                            &[3000],
-                            5,
-                            true,
-                        ),
+                        server(41000, "dev", "yarn next dev", "storefront", &[3000], 5),
                         server(
                             41137,
                             "api",
@@ -150,13 +126,11 @@ impl Demo {
                             "storefront",
                             &[4000],
                             3,
-                            true,
                         ),
                     ],
                 ),
             ],
             stopping: Vec::new(),
-            following: None,
             ticks: 0,
         }
     }
@@ -195,26 +169,6 @@ impl Demo {
 
     fn handle(&mut self, request: Request) -> Vec<Event> {
         let notice = match request {
-            Request::Follow(id) => {
-                self.following = id;
-                let Some(server) = id
-                    .and_then(|id| self.server(id))
-                    .filter(|s| s.log.is_some())
-                else {
-                    return Vec::new();
-                };
-                let lines = script(&server.name)
-                    .iter()
-                    .cycle()
-                    .take(40)
-                    .map(|l| l.to_string())
-                    .collect();
-                return vec![Event::Logs {
-                    id: server.id,
-                    lines,
-                    reset: true,
-                }];
-            }
             Request::Stop(id) => {
                 let Some(server) = self.servers_mut().find(|s| s.id == id) else {
                     return vec![Event::Notice("It has already stopped.".into())];
@@ -255,44 +209,9 @@ impl Demo {
         for id in due {
             self.remove(id);
         }
-        let mut events = vec![Event::Snapshot(self.snapshot())];
-        if let Some(server) = self.following.and_then(|id| self.server(id))
-            && server.log.is_some()
-        {
-            let lines = script(&server.name);
-            if !lines.is_empty() {
-                events.push(Event::Logs {
-                    id: server.id,
-                    lines: vec![lines[ticks as usize % lines.len()].to_owned()],
-                    reset: false,
-                });
-            }
-        }
-        events
+        vec![Event::Snapshot(self.snapshot())]
     }
 }
-
-const NEXT: &[&str] = &[
-    " \u{1b}[37m○\u{1b}[39m Compiling /products ...",
-    " \u{1b}[32m✓\u{1b}[39m Compiled /products in 412ms \u{1b}[2m(1023 modules)\u{1b}[22m",
-    " GET /products \u{1b}[32m200\u{1b}[39m in 486ms",
-    " GET /api/cart \u{1b}[32m200\u{1b}[39m in 31ms",
-    " \u{1b}[33m⚠\u{1b}[39m Fast Refresh had to perform a full reload",
-    " GET /checkout \u{1b}[31m500\u{1b}[39m in 211ms",
-];
-const API: &[&str] = &[
-    "[api] GET /health 200 2ms",
-    "[api] POST /orders 201 18ms",
-    "[api] WARN slow query: SELECT * FROM line_items (1203ms)",
-    "[api] Error: connect ECONNREFUSED 127.0.0.1:6379 (redis cache, falling back)",
-    "[api] PATCH /cart/31 200 9ms",
-];
-const EXPO: &[&str] = &[
-    "\u{1b}[32miOS\u{1b}[39m Bundled 812ms index.js \u{1b}[2m(1243 modules)\u{1b}[22m",
-    " \u{1b}[2mLOG\u{1b}[22m  [cart] item added: sku-1042",
-    " \u{1b}[33mWARN\u{1b}[39m  VirtualizedList: You have a large list that is slow to update",
-    " \u{1b}[2mLOG\u{1b}[22m  [nav] Home → ProductDetail",
-];
 
 #[cfg(test)]
 mod tests {
@@ -319,25 +238,5 @@ mod tests {
         let before = demo.projects.len();
         demo.handle(Request::Kill(id));
         assert_eq!(demo.projects.len(), before - 1);
-    }
-
-    #[test]
-    fn following_a_server_with_a_log_streams_lines() {
-        let mut demo = Demo::new();
-        let id = demo.projects[2].servers[0].id;
-        let events = demo.handle(Request::Follow(Some(id)));
-        assert!(matches!(&events[..], [Event::Logs { reset: true, .. }]));
-        let more = demo.tick(Instant::now());
-        assert!(
-            more.iter()
-                .any(|e| matches!(e, Event::Logs { reset: false, .. }))
-        );
-    }
-
-    #[test]
-    fn following_a_server_without_a_log_sends_nothing() {
-        let mut demo = Demo::new();
-        let id = first(&demo);
-        assert!(demo.handle(Request::Follow(Some(id))).is_empty());
     }
 }

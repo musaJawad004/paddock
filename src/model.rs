@@ -49,8 +49,6 @@ pub struct Server {
     /// Summed over the whole tree.
     pub usage: ResourceUsage,
     pub state: ServerState,
-    /// The log file, when it was started through `paddock run`.
-    pub log: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

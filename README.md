@@ -5,7 +5,7 @@
 <p align="center">
   <b>Every dev server on this machine, in one place.</b><br>
   Paddock is a terminal dashboard that finds the servers you start in any terminal, editor or agent,
-  groups them by project, streams their logs, and stops them when you ask.
+  groups them by project, and stops them when you ask.
 </p>
 
 <p align="center">
@@ -16,7 +16,7 @@
 </p>
 
 <p align="center">
-  <img src="assets/demo.gif" width="900" alt="Paddock showing servers grouped by project, live logs with a selection being copied, a server being stopped, and the help popup">
+  <img src="assets/demo.gif" width="900" alt="Paddock showing servers grouped by project, server details, a server being stopped, and the help popup">
   <br>
   <sub>Recorded with <code>paddock --demo</code>. <a href="assets/demo.png">Still image</a>.</sub>
 </p>
@@ -59,18 +59,6 @@ Every dev server you have running shows up within two seconds, grouped by
 project. Nothing to register, nothing to configure. Use `↑` `↓` to pick
 one, `o` to open it in the browser, `x` to stop it.
 
-To see **logs** too, add one line to your shell config once:
-
-```bash
-echo 'eval "$(paddock init zsh)"' >> ~/.zshrc     # or bash / fish
-```
-
-Open a new terminal and start servers the way you always do (`npm run dev`,
-`yarn dev`, `npx expo start`, `cargo run`). Their output appears live in
-Paddock while your terminal works exactly as before. Other commands, like
-`npm install` or `cargo build`, run untouched. For a single run without the
-shell line: `paddock run npm run dev`.
-
 ```bash
 paddock list       # the running servers, printed once
 paddock --demo     # look around with made-up servers
@@ -80,7 +68,7 @@ paddock --help     # every command and flag
 ## How Paddock works
 
 <p align="center">
-  <img src="assets/how-it-works.svg" width="900" alt="Diagram: servers started in a terminal, an editor and Claude Code are found through ports and the process table, grouped into the dashboard, their logs captured by paddock run, and stopped from the dashboard">
+  <img src="assets/how-it-works.svg" width="900" alt="Diagram: servers started in a terminal, an editor and Claude Code are found through ports and the process table, grouped into the dashboard, and stopped from it">
 </p>
 
 1. **Discovery.** Every two seconds Paddock asks `lsof` (`netstat` on
@@ -92,13 +80,7 @@ paddock --help     # every command and flag
    `esbuild` processes below it are a single server named `dev`. Paddock
    walks up through dev runners only, so your shell, editor, terminal or a
    coding agent such as Claude Code is never part of a server.
-3. **Live logs.** A running program's output belongs to the terminal that
-   started it; nothing else can read it later. So `paddock run` (which the
-   shell line calls for you) starts the command through the system's
-   `script` tool: your terminal shows everything as usual, and a copy goes
-   to `~/.local/state/paddock/logs`, readable only by you and deleted after
-   three days.
-4. **Stop and kill.** `x` sends SIGTERM to the whole tree and SIGKILL after
+3. **Stop and kill.** `x` sends SIGTERM to the whole tree and SIGKILL after
    five seconds; `K` kills at once. Each asks first, and Paddock checks the
    process is still the one you saw before it sends anything.
 
@@ -106,13 +88,11 @@ paddock --help     # every command and flag
 
 | Key | Does |
 |---|---|
-| `↑` `↓` or `k` `j` | pick a server, a log line or a port |
-| `tab` | switch between servers, logs and ports |
-| `enter` | open the logs, or jump from a port to its server |
+| `↑` `↓` or `k` `j` | pick a server or a port |
+| `tab` | switch between servers and ports |
+| `enter` | jump from a port to its server |
 | `o` | open in the browser |
-| `y` / `Y` | servers: copy URL / command. Logs: copy line or selection / all |
-| `v` | start a selection in the logs |
-| `pgup` `pgdn`, `end` | scroll the logs, jump to the newest line |
+| `y` / `Y` | copy its URL / its command |
 | `x` / `K` | stop / kill the server |
 | `,` | settings: theme, keys, splash |
 | `?` / `q` | help / quit |
@@ -134,7 +114,6 @@ quit = ["q", "ctrl+q"]
 | | macOS | Linux | Windows |
 |---|---|---|---|
 | Find, group and stop servers | yes | yes (needs `lsof`) | yes |
-| Live logs (`paddock run`, `paddock init`) | yes | yes | not yet |
 | Stop with a grace period | SIGTERM, then SIGKILL | SIGTERM, then SIGKILL | ends the process at once |
 
 ## Architecture
@@ -142,18 +121,16 @@ quit = ["q", "ctrl+q"]
 ```
 src/
   main.rs            binary entry: error reporting, then cli
-  cli.rs             paddock, list, run, init, --demo, --theme, --no-splash
+  cli.rs             paddock, list, --demo, --theme, --no-splash
   model.rs           Snapshot, Project, Server, ServerId, ListeningPort
   config.rs          ~/.config/paddock/config.toml (theme, keys, splash)
   project.rs         which folder is a project, from its files
-  capture.rs         paddock run (script wrapper), paddock init, log folder
   demo.rs            made-up servers for --demo
   monitor/           watches the machine; never starts anything
-    mod.rs           scan loop every 2 s, follows the selected log
+    mod.rs           scan loop every 2 s, stop deadlines
     ports.rs         lsof and netstat parsers
     stats.rs         process table: parents, folders, owners, CPU, memory
     servers.rs       listeners + process table -> projects and servers (pure)
-    follow.rs        reads a growing log file
     actions.rs       the only code that stops processes
   ipc/               Request and Event between the TUI and the monitor
   tui/               ratatui dashboard: app state, views, keys, themes, splash
@@ -193,8 +170,9 @@ formula, and publishes to npm when the `NPM_TOKEN` secret is set.
 
 ## Privacy
 
-Paddock reads the process table, runs `lsof` or `netstat`, and reads its own
-log files. It has no network code and sends no telemetry. The build fails if
+Paddock reads the process table and runs `lsof` or `netstat`. It does not
+change your shell, does not sit in front of any command, writes no files
+except its settings, has no network code and sends no telemetry. The build fails if
 network code is added: see `.github/workflows/supply-chain.yml`.
 
 ## License

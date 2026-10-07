@@ -16,9 +16,6 @@
 //!
 //! Everything else (system apps, other users' programs, anything outside
 //! the home folder) is not shown at all.
-//!
-//! A server started through `paddock run` sits under a `script` process
-//! whose arguments name its log file; that file becomes `Server::log`.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -129,8 +126,6 @@ const NODE_RUNNER_SCRIPTS: &[(&str, &str)] = &[
 
 pub struct Context<'a> {
     pub home: &'a Path,
-    /// Where `paddock run` writes logs.
-    pub logs_dir: Option<&'a Path>,
     pub stopping: &'a HashSet<ServerId>,
     /// Paddock and the processes above it.
     pub protected: &'a HashSet<u32>,
@@ -165,7 +160,6 @@ pub fn collect(listeners: &[Listener], table: &impl ProcessTable, cx: &Context) 
                     } else {
                         ServerState::Running
                     },
-                    log: log_of(id.pid, table, cx.logs_dir),
                 }
             });
             if !entry.ports.contains(&listener.port) {
@@ -259,20 +253,6 @@ fn server_of(
         .unwrap_or(top);
     let started = table.start_time(top)?;
     Some((ServerId { pid: top, started }, root_dir, named_by))
-}
-
-/// The log file named in the arguments of a `script` parent, when the
-/// server was started through `paddock run`.
-fn log_of(top: u32, table: &impl ProcessTable, logs_dir: Option<&Path>) -> Option<PathBuf> {
-    let logs_dir = logs_dir?;
-    let parent = table.parent(top)?;
-    let cmd = table.cmd(parent);
-    if cmd.first().map(|c| base(c)) != Some("script") {
-        return None;
-    }
-    cmd.iter()
-        .map(PathBuf::from)
-        .find(|arg| arg.starts_with(logs_dir) && arg.extension().is_some_and(|e| e == "log"))
 }
 
 fn is_shell_program(cmd: &[String]) -> bool {
@@ -556,7 +536,6 @@ mod tests {
         let (stopping, protected) = (HashSet::new(), HashSet::new());
         let cx = Context {
             home: Path::new("/home/me"),
-            logs_dir: Some(Path::new("/home/me/.local/state/paddock/logs")),
             stopping: &stopping,
             protected: &protected,
         };
@@ -586,7 +565,6 @@ mod tests {
         assert_eq!(server.ports, vec![5273]);
         assert_eq!(server.processes, 4, "npm, sh, node and esbuild");
         assert_eq!(snap.ports[0].owner, server.id);
-        assert_eq!(server.log, None);
     }
 
     #[test]
@@ -630,41 +608,12 @@ mod tests {
     }
 
     #[test]
-    fn a_server_started_through_paddock_run_has_its_log() {
-        let table = Table::default()
-            .add(200, 1, "/home/me/shop", "-zsh")
-            .add(
-                300,
-                200,
-                "/home/me/shop",
-                "script -q -F /home/me/.local/state/paddock/logs/1-300-npm.log npm run dev",
-            )
-            .add(400, 300, "/home/me/shop", "npm run dev")
-            .add(
-                500,
-                400,
-                "/home/me/shop",
-                "node /home/me/shop/node_modules/.bin/vite",
-            );
-        let snap = snapshot(&[listener(5173, 500, "node")], &table);
-        let server = snap.servers().next().expect("server");
-        assert_eq!(server.id.pid, 400, "script is not part of the server");
-        assert_eq!(
-            server.log.as_deref(),
-            Some(Path::new(
-                "/home/me/.local/state/paddock/logs/1-300-npm.log"
-            ))
-        );
-    }
-
-    #[test]
     fn protected_pids_are_never_part_of_a_server() {
         let table = terminal_with_npm();
         let protected: HashSet<u32> = [300].into();
         let none = HashSet::new();
         let cx = Context {
             home: Path::new("/home/me"),
-            logs_dir: None,
             stopping: &none,
             protected: &protected,
         };

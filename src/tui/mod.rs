@@ -7,14 +7,12 @@
 //! config) run on blocking tasks and report back as messages, so the UI
 //! never stalls.
 
-mod ansi;
 pub mod app;
 mod brand;
 mod clipboard;
 mod details;
 mod help;
 pub mod keys;
-mod logs_view;
 mod overlay;
 pub mod palette;
 mod settings;
@@ -126,11 +124,6 @@ async fn event_loop(
             }
         };
 
-        if let Some(follow) = app.take_follow()
-            && client.requests.send(follow).await.is_err()
-        {
-            app.update(Msg::MonitorGone);
-        }
         match effect {
             None => {}
             Some(Effect::Send(request)) => {

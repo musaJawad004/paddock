@@ -6,12 +6,7 @@
 //! text, open a URL, save the config. It never touches the terminal or the
 //! disk, so it is tested directly. Popups handle their own keys in
 //! `overlay.rs` and `settings.rs`.
-//!
-//! The selected server is the followed one: whenever the selection changes,
-//! `take_follow` hands the loop a `Request::Follow` so its log streams in.
 
-use std::cell::Cell;
-use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -19,20 +14,17 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
-use super::ansi;
 use super::keys::{Action, Keymap};
 use super::overlay::Overlay;
 use super::settings::Settings;
 use super::theme::Theme;
-use super::{details, help, logs_view, overlay, settings, sidebar, splash, status_bar};
+use super::{details, help, overlay, settings, sidebar, splash, status_bar};
 use crate::config::Config;
 use crate::ipc::protocol::{Event, Request};
 use crate::model::{ListeningPort, Server, ServerId, ServerState, Snapshot};
 
-/// Log lines kept for the followed server.
-pub const LOG_LIMIT: usize = 5_000;
 const MIN_WIDTH: u16 = 70;
-const MIN_HEIGHT: u16 = 18;
+const MIN_HEIGHT: u16 = 14;
 const NOTICE_TIME: Duration = Duration::from_secs(6);
 
 pub enum Msg {
@@ -62,7 +54,6 @@ pub enum Effect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
     Servers,
-    Logs,
     Ports,
 }
 
@@ -88,17 +79,6 @@ pub struct App {
     pub(super) snapshot: Snapshot,
     /// Followed across scans by id, not by position.
     selected: Option<ServerId>,
-    /// The server whose log the monitor streams to us.
-    followed: Option<ServerId>,
-    pub(super) logs: VecDeque<String>,
-    /// Lines scrolled up from the newest. 0 follows new output.
-    pub(super) scroll: usize,
-    /// Highlighted log line while the log pane has focus (index into logs).
-    pub(super) cursor: Option<usize>,
-    /// Other end of a selection started with `mark`.
-    pub(super) mark: Option<usize>,
-    /// Log pane height from the last frame, for paging.
-    pub(super) log_height: Cell<usize>,
     pub(super) selected_port: usize,
     pub(super) focus: Focus,
     pub(super) overlay: Option<Overlay>,
@@ -132,12 +112,6 @@ impl App {
             source: source.into(),
             snapshot: Snapshot::default(),
             selected: None,
-            followed: None,
-            logs: VecDeque::new(),
-            scroll: 0,
-            cursor: None,
-            mark: None,
-            log_height: Cell::new(10),
             selected_port: 0,
             focus: Focus::Servers,
             overlay: None,
@@ -157,22 +131,6 @@ impl App {
     /// True once per change, so the loop draws only when something changed.
     pub fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
-    }
-
-    /// A `Follow` request when the selected server changed since last time.
-    pub fn take_follow(&mut self) -> Option<Request> {
-        if self.followed == self.selected {
-            return None;
-        }
-        self.followed = self.selected;
-        self.logs.clear();
-        self.scroll = 0;
-        self.cursor = None;
-        self.mark = None;
-        if self.focus == Focus::Logs {
-            self.focus = Focus::Servers;
-        }
-        Some(Request::Follow(self.selected))
     }
 
     pub fn notify(&mut self, kind: NoticeKind, text: impl Into<String>) {
@@ -270,69 +228,39 @@ impl App {
         self.notice = None;
         match key.code {
             KeyCode::Esc => {
-                if self.mark.take().is_none() {
-                    self.set_focus(Focus::Servers);
+                self.focus = Focus::Servers;
+                return None;
+            }
+            KeyCode::Enter if self.focus == Focus::Ports => {
+                if let Some(owner) = self.selected_listener().map(|l| l.owner) {
+                    self.selected = Some(owner);
+                    self.focus = Focus::Servers;
                 }
                 return None;
             }
-            KeyCode::Enter => return self.on_enter(),
             _ => {}
         }
         self.on_action(self.keymap.action(key)?)
-    }
-
-    fn on_enter(&mut self) -> Option<Effect> {
-        match self.focus {
-            Focus::Servers => self.set_focus(Focus::Logs),
-            Focus::Logs => return self.copy_lines(),
-            Focus::Ports => {
-                let owner = self.selected_listener()?.owner;
-                self.selected = Some(owner);
-                self.set_focus(Focus::Servers);
-            }
-        }
-        None
     }
 
     fn on_action(&mut self, action: Action) -> Option<Effect> {
         match action {
             Action::Up => self.move_by(-1),
             Action::Down => self.move_by(1),
-            Action::NextPane => self.cycle_focus(1),
-            Action::PrevPane => self.cycle_focus(-1),
+            Action::NextPane | Action::PrevPane => {
+                self.focus = match self.focus {
+                    Focus::Servers => Focus::Ports,
+                    Focus::Ports => Focus::Servers,
+                };
+            }
             Action::Open => return self.open(),
-            Action::Copy => {
-                return match self.focus {
-                    Focus::Logs => self.copy_lines(),
-                    _ => self.copy_url(),
-                };
-            }
+            Action::Copy => return self.copy_url(),
             Action::CopyAll => {
-                // A server without a log: Y copies the command that gives it
-                // one, which is what the screen offers.
-                let without_log = self.selected_server().is_some_and(|s| s.log.is_none());
-                return match self.focus {
-                    Focus::Logs => self.copy_all_logs(),
-                    Focus::Servers if without_log => self.copy_run_command(),
-                    _ => self.copy_command(),
-                };
-            }
-            Action::Mark => {
-                if self.focus != Focus::Logs {
-                    self.set_focus(Focus::Logs);
-                }
-                self.mark = match self.mark {
-                    Some(_) => None,
-                    None => self.cursor,
-                };
-            }
-            Action::ScrollUp => self.page(-1),
-            Action::ScrollDown => self.page(1),
-            Action::Follow => {
-                self.scroll = 0;
-                if self.cursor.is_some() {
-                    self.cursor = self.logs.len().checked_sub(1);
-                }
+                let server = self.selected_server()?;
+                return Some(Effect::Copy {
+                    text: server.command.clone(),
+                    what: "the command".into(),
+                });
             }
             Action::Stop => self.confirm_stop(false),
             Action::Kill => self.confirm_stop(true),
@@ -345,22 +273,6 @@ impl App {
         None
     }
 
-    fn set_focus(&mut self, focus: Focus) {
-        self.focus = focus;
-        self.mark = None;
-        self.cursor = match focus {
-            Focus::Logs => self.visible_bottom(),
-            _ => None,
-        };
-    }
-
-    fn cycle_focus(&mut self, step: isize) {
-        const ORDER: [Focus; 3] = [Focus::Servers, Focus::Logs, Focus::Ports];
-        let at = ORDER.iter().position(|f| *f == self.focus).unwrap_or(0);
-        let next = (at as isize + step).rem_euclid(ORDER.len() as isize) as usize;
-        self.set_focus(ORDER[next]);
-    }
-
     fn move_by(&mut self, step: isize) {
         match self.focus {
             Focus::Servers => {
@@ -371,7 +283,6 @@ impl App {
                 let at = self.selected_index().unwrap_or(0);
                 self.selected = Some(ids[at.saturating_add_signed(step).min(last)]);
             }
-            Focus::Logs => self.move_cursor(step),
             Focus::Ports => {
                 let last = self.snapshot.ports.len().saturating_sub(1);
                 self.selected_port = self.selected_port.saturating_add_signed(step).min(last);
@@ -379,62 +290,12 @@ impl App {
         }
     }
 
-    fn move_cursor(&mut self, step: isize) {
-        let Some(last) = self.logs.len().checked_sub(1) else {
-            return;
-        };
-        let cursor = self.cursor.unwrap_or(last).saturating_add_signed(step);
-        self.cursor = Some(cursor.min(last));
-        self.keep_cursor_visible();
-    }
-
-    fn page(&mut self, direction: isize) {
-        let page = self.log_height.get().saturating_sub(1).max(1);
-        if self.focus == Focus::Logs {
-            self.move_cursor(direction * page as isize);
-            return;
-        }
-        self.scroll = if direction < 0 {
-            (self.scroll + page).min(self.logs.len())
-        } else {
-            self.scroll.saturating_sub(page)
-        };
-    }
-
-    /// The newest line on screen: where the cursor starts.
-    fn visible_bottom(&self) -> Option<usize> {
-        let len = self.logs.len();
-        len.checked_sub(1 + self.scroll.min(len.saturating_sub(1)))
-    }
-
-    fn keep_cursor_visible(&mut self) {
-        let Some(cursor) = self.cursor else {
-            return;
-        };
-        let len = self.logs.len();
-        let height = self.log_height.get().max(1);
-        let end = len - self.scroll.min(len);
-        let start = end.saturating_sub(height);
-        if cursor < start {
-            self.scroll = len.saturating_sub(cursor + height);
-        } else if cursor >= end {
-            self.scroll = len - cursor - 1;
-        }
-    }
-
-    /// First and last selected log line, inclusive.
-    pub(super) fn selection(&self) -> Option<(usize, usize)> {
-        let cursor = self.cursor?;
-        let mark = self.mark.unwrap_or(cursor);
-        Some((cursor.min(mark), cursor.max(mark)))
-    }
-
     /// The port the user is pointing at: the selected row in the Ports pane,
     /// else the selected server's first port.
     fn target_port(&self) -> Option<u16> {
         match self.focus {
             Focus::Ports => self.selected_listener().map(|l| l.port),
-            _ => self.selected_server()?.ports.first().copied(),
+            Focus::Servers => self.selected_server()?.ports.first().copied(),
         }
     }
 
@@ -454,60 +315,10 @@ impl App {
         })
     }
 
-    fn copy_command(&mut self) -> Option<Effect> {
-        let server = self.selected_server()?;
-        Some(Effect::Copy {
-            text: server.command.clone(),
-            what: "the command".into(),
-        })
-    }
-
-    fn copy_lines(&mut self) -> Option<Effect> {
-        if self.selected_server().is_some_and(|s| s.log.is_none()) {
-            return self.copy_run_command();
-        }
-        let (from, to) = self.selection()?;
-        let text: Vec<String> = self.logs.range(from..=to).map(|l| ansi::strip(l)).collect();
-        self.mark = None;
-        let what = if text.len() == 1 {
-            "1 line".to_owned()
-        } else {
-            format!("{} lines", text.len())
-        };
-        Some(Effect::Copy {
-            text: text.join("\n"),
-            what,
-        })
-    }
-
-    fn copy_all_logs(&mut self) -> Option<Effect> {
-        if self.selected_server().is_some_and(|s| s.log.is_none()) {
-            return self.copy_run_command();
-        }
-        if self.logs.is_empty() {
-            self.notify(NoticeKind::Info, "No log lines yet.");
-            return None;
-        }
-        let text: Vec<String> = self.logs.iter().map(|l| ansi::strip(l)).collect();
-        Some(Effect::Copy {
-            what: format!("{} lines", text.len()),
-            text: text.join("\n"),
-        })
-    }
-
-    /// For a server without a log: the command that restarts it with one.
-    fn copy_run_command(&mut self) -> Option<Effect> {
-        let server = self.selected_server()?;
-        Some(Effect::Copy {
-            text: run_command(server),
-            what: "the restart command".into(),
-        })
-    }
-
     fn confirm_stop(&mut self, force: bool) {
         let target = match self.focus {
             Focus::Ports => self.selected_listener().map(|l| l.owner),
-            _ => self.selected_server().map(|s| s.id),
+            Focus::Servers => self.selected_server().map(|s| s.id),
         };
         let Some(server) = target.and_then(|id| self.snapshot.servers().find(|s| s.id == id))
         else {
@@ -568,33 +379,8 @@ impl App {
                     .selected_port
                     .min(self.snapshot.ports.len().saturating_sub(1));
             }
-            Event::Logs { id, lines, reset } => {
-                if Some(id) != self.followed {
-                    return;
-                }
-                if reset {
-                    self.logs.clear();
-                    self.scroll = 0;
-                    self.cursor = None;
-                    self.mark = None;
-                }
-                self.append_logs(lines);
-            }
             Event::Notice(text) => self.notify(NoticeKind::Info, text),
         }
-    }
-
-    fn append_logs(&mut self, lines: Vec<String>) {
-        let added = lines.len();
-        self.logs.extend(lines);
-        let overflow = self.logs.len().saturating_sub(LOG_LIMIT);
-        self.logs.drain(..overflow);
-        // Keep a scrolled or selected view still while new lines arrive.
-        if self.scroll > 0 || self.cursor.is_some() {
-            self.scroll = (self.scroll + added).min(self.logs.len());
-        }
-        self.cursor = self.cursor.map(|c| c.saturating_sub(overflow));
-        self.mark = self.mark.map(|m| m.saturating_sub(overflow));
     }
 
     pub(super) fn is_selected(&self, id: ServerId) -> bool {
@@ -610,18 +396,6 @@ impl App {
         let stopping = self.snapshot.servers().count() - running;
         (running, stopping)
     }
-}
-
-/// One line to paste in a terminal: go to the server's folder and start the
-/// same command with its log captured.
-pub(super) fn run_command(server: &Server) -> String {
-    let folder = super::tilde(&server.cwd);
-    let folder = if folder.contains(' ') {
-        format!("\"{folder}\"")
-    } else {
-        folder
-    };
-    format!("cd {folder} && paddock run {}", server.command)
 }
 
 impl Widget for &App {
@@ -658,15 +432,7 @@ impl Widget for &App {
         status_bar::render_header(self, header, buf);
         sidebar::render_servers(self, servers, buf);
         sidebar::render_ports(self, ports, buf);
-        if self.selected_server().is_some() {
-            let [info, logs] =
-                Layout::vertical([Constraint::Length(details::HEIGHT), Constraint::Fill(1)])
-                    .areas(main);
-            details::render(self, info, buf);
-            logs_view::render(self, logs, buf);
-        } else {
-            details::render(self, main, buf);
-        }
+        details::render(self, main, buf);
         status_bar::render_footer(self, footer, buf);
 
         match &self.overlay {
@@ -697,7 +463,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn server(pid: u32, name: &str, ports: &[u16], log: bool) -> Server {
+    fn server(pid: u32, name: &str, ports: &[u16]) -> Server {
         Server {
             id: id(pid),
             name: name.into(),
@@ -710,25 +476,24 @@ pub(crate) mod tests {
                 memory_bytes: 120 * 1024 * 1024,
             },
             state: ServerState::Running,
-            log: log.then(|| PathBuf::from(format!("/logs/{pid}.log"))),
         }
     }
 
     fn snapshot() -> Snapshot {
-        let web = server(100, "dev", &[3000], true);
+        let web = server(100, "dev", &[3000]);
         Snapshot {
             projects: vec![
                 Project {
                     name: "shop".into(),
                     path: PathBuf::from("/home/me/shop"),
                     kind: "node".into(),
-                    servers: vec![web.clone(), server(200, "api", &[4000], false)],
+                    servers: vec![web.clone(), server(200, "api", &[4000])],
                 },
                 Project {
                     name: "docs".into(),
                     path: PathBuf::from("/home/me/docs"),
                     kind: "folder".into(),
-                    servers: vec![server(300, "http.server", &[8000], false)],
+                    servers: vec![server(300, "http.server", &[8000])],
                 },
             ],
             ports: vec![
@@ -752,7 +517,6 @@ pub(crate) mod tests {
         let mut app = App::new(Config::default(), "test", false);
         app.theme = Theme::plain();
         app.update(Msg::Monitor(Event::Snapshot(snapshot())));
-        assert_eq!(app.take_follow(), Some(Request::Follow(Some(id(100)))));
         app
     }
 
@@ -762,14 +526,6 @@ pub(crate) mod tests {
 
     fn send(request: Request) -> Option<Effect> {
         Some(Effect::Send(request))
-    }
-
-    fn logs(app: &mut App, lines: &[&str], reset: bool) {
-        app.update(Msg::Monitor(Event::Logs {
-            id: id(100),
-            lines: lines.iter().map(|l| l.to_string()).collect(),
-            reset,
-        }));
     }
 
     fn copied(text: &str, what: &str) -> Option<Effect> {
@@ -788,27 +544,6 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Down);
         }
         assert_eq!(app.selected_server().map(|s| s.id), Some(id(300)));
-    }
-
-    #[test]
-    fn changing_the_selection_follows_the_new_server_once() {
-        let mut app = app();
-        logs(&mut app, &["old"], true);
-        press(&mut app, KeyCode::Down);
-        assert_eq!(app.take_follow(), Some(Request::Follow(Some(id(200)))));
-        assert!(app.logs.is_empty(), "the old server's lines are gone");
-        assert_eq!(app.take_follow(), None);
-    }
-
-    #[test]
-    fn logs_for_another_server_are_ignored() {
-        let mut app = app();
-        app.update(Msg::Monitor(Event::Logs {
-            id: id(999),
-            lines: vec!["stray".into()],
-            reset: true,
-        }));
-        assert!(app.logs.is_empty());
     }
 
     #[test]
@@ -839,9 +574,12 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn copy_keys_depend_on_the_pane() {
+    fn open_and_copy_use_the_selected_server() {
         let mut app = app();
-        logs(&mut app, &["one", "\u{1b}[32mtwo\u{1b}[0m", "three"], true);
+        assert_eq!(
+            press(&mut app, KeyCode::Char('o')),
+            Some(Effect::Open("http://localhost:3000".into()))
+        );
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
             copied("http://localhost:3000", "the URL")
@@ -850,74 +588,26 @@ pub(crate) mod tests {
             press(&mut app, KeyCode::Char('Y')),
             copied("npm run dev", "the command")
         );
+    }
 
+    #[test]
+    fn the_ports_pane_targets_its_row() {
+        let mut app = app();
         press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focus, Focus::Logs);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
-            copied("three", "1 line")
-        );
-        press(&mut app, KeyCode::Char('v'));
-        press(&mut app, KeyCode::Up);
-        press(&mut app, KeyCode::Up);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
-            copied("one\ntwo\nthree", "3 lines")
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Char('Y')),
-            copied("one\ntwo\nthree", "3 lines")
-        );
-    }
-
-    #[test]
-    fn a_server_without_a_log_offers_its_paddock_run_command() {
-        let mut app = app();
-        press(&mut app, KeyCode::Down);
-        app.take_follow();
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('Y')),
-            copied(
-                "cd /home/me/shop && paddock run npm run api",
-                "the restart command"
-            )
-        );
-    }
-
-    #[test]
-    fn scrolled_logs_stay_put_while_lines_arrive() {
-        let mut app = app();
-        app.log_height.set(5);
-        let many: Vec<String> = (0..50).map(|i| format!("line {i}")).collect();
-        let many: Vec<&str> = many.iter().map(String::as_str).collect();
-        logs(&mut app, &many, true);
-        press(&mut app, KeyCode::PageUp);
-        assert_eq!(app.scroll, 4);
-        logs(&mut app, &["new"], false);
-        assert_eq!(app.scroll, 5);
-        press(&mut app, KeyCode::Char('G'));
-        assert_eq!(app.scroll, 0);
-    }
-
-    #[test]
-    fn enter_on_a_port_selects_its_server() {
-        let mut app = app();
-        press(&mut app, KeyCode::BackTab);
         assert_eq!(app.focus, Focus::Ports);
         press(&mut app, KeyCode::Down);
+        assert_eq!(
+            press(&mut app, KeyCode::Char('o')),
+            Some(Effect::Open("http://localhost:4000".into()))
+        );
+        press(&mut app, KeyCode::Char('x'));
+        assert_eq!(
+            press(&mut app, KeyCode::Char('y')),
+            send(Request::Stop(id(200)))
+        );
         press(&mut app, KeyCode::Enter);
         assert_eq!(app.focus, Focus::Servers);
         assert_eq!(app.selected_server().map(|s| s.id), Some(id(200)));
-    }
-
-    #[test]
-    fn open_uses_the_selected_port() {
-        let mut app = app();
-        assert_eq!(
-            press(&mut app, KeyCode::Char('o')),
-            Some(Effect::Open("http://localhost:3000".into()))
-        );
     }
 
     #[test]
@@ -994,22 +684,8 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn renders_a_server_with_logs() {
-        let mut app = app();
-        logs(
-            &mut app,
-            &["VITE v8 ready in 201 ms", "Error: something broke"],
-            true,
-        );
-        insta::assert_snapshot!(render(&app, 100, 26));
-    }
-
-    #[test]
-    fn renders_a_server_without_logs() {
-        let mut app = app();
-        press(&mut app, KeyCode::Down);
-        app.take_follow();
-        insta::assert_snapshot!(render(&app, 100, 26));
+    fn renders_the_dashboard() {
+        insta::assert_snapshot!(render(&app(), 100, 24));
     }
 
     #[test]

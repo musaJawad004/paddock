@@ -10,11 +10,11 @@ here kills someone's unsaved work, their shell, or their editor.
 
 - Paddock never starts a process on its own. The dashboard runs only `lsof`
   (to read ports) and, on user request, `open`/`xdg-open` and
-  `pbcopy`/`wl-copy`/`xclip`/`xsel`, each with fixed arguments and no shell.
-  `paddock run` execs the user's own command through `script`; the Linux
-  form needs one shell string, built only with `capture::shell_quote`.
-- Captured logs stay in the private logs folder (mode 700) and are never
-  sent anywhere.
+  `pbcopy`/`wl-copy`/`xclip`/`xsel`/`clip`, each with fixed arguments and no
+  shell.
+- Paddock never wraps, intercepts or changes how the user's commands run:
+  no shell functions, no aliases, no PATH changes, no edits to shell config
+  files.
 - Every signal is sent from `monitor::actions` and nowhere else, only for a
   target the user confirmed in the TUI.
 - Before signalling, refresh the process table and check the pid still has

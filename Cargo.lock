@@ -1093,7 +1093,7 @@ checksum = "13c45bb4a6ae1280ec0803b1ef9d3455eb50f01efbbe1447ab020f1d54fba9d8"
 
 [[package]]
 name = "paddock"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "color-eyre",
