@@ -30,10 +30,9 @@ unicode-width = "0.2.2"
 tokio = { version = "1.53.2", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
 futures = "0.3.34"
 
-# The process table (parents, folders, CPU, memory) and signals to stop
-# what the user asks to stop.
+# The process table (parents, folders, owners, CPU, memory) and stopping
+# what the user asks to stop, on macOS, Linux and Windows alike.
 sysinfo = { version = "0.39.6", default-features = false, features = ["system"] }
-nix = { version = "0.28.0", features = ["signal", "user"] }
 
 # CLI and config
 clap = { version = "4.6.7", features = ["derive"] }

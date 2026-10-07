@@ -13,7 +13,16 @@ boundaries.
 ## Stack
 
 Rust (edition 2024, stable), ratatui 0.30 with crossterm, tokio, sysinfo,
-nix, clap, serde and toml. macOS first, Linux where lsof exists.
+clap, serde and toml. macOS, Linux (with lsof) and Windows (netstat; no log
+capture yet). Check Windows with
+`cargo clippy --target x86_64-pc-windows-msvc --all-targets -- -D warnings`.
+
+Releases: push a `vX.Y.Z` tag matching Cargo.toml. `.github/workflows/release.yml`
+builds every platform, publishes the GitHub release, regenerates
+`Formula/paddock.rb` (`scripts/update-formula.py`) and publishes to npm
+(`scripts/publish-npm.py`, `npm/paddock-cli`) when `NPM_TOKEN` is set.
+README art lives in `assets/` (banner.gif, demo.gif, demo.png,
+how-it-works.svg).
 
 ## Commands
 

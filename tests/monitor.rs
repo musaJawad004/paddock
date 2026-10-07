@@ -6,6 +6,8 @@
 
 // Test helpers may panic: a failed setup should fail the test loudly.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
+// lsof, python3 listeners and `script` are Unix tools.
+#![cfg(unix)]
 
 use std::collections::HashSet;
 use std::fs;
@@ -14,8 +16,8 @@ use std::process::{Child, Command};
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
-use nix::sys::signal::Signal;
 use paddock::model::{Server, ServerId};
+use paddock::monitor::actions::How;
 use paddock::monitor::servers::ProcessTable;
 use paddock::monitor::stats::Stats;
 use paddock::monitor::{actions, ports, scan};
@@ -72,11 +74,17 @@ fn find(home: &Path, logs_dir: Option<&Path>, port: u16) -> Option<(String, Serv
     None
 }
 
+fn alive(pid: u32) -> bool {
+    let mut stats = Stats::new();
+    stats.refresh();
+    stats.is_alive(pid)
+}
+
 /// Waits up to five seconds for `pid` to disappear.
 fn gone(pid: u32) -> bool {
     let deadline = Instant::now() + Duration::from_secs(5);
     while Instant::now() < deadline {
-        if actions::send(pid, Signal::SIGCONT).is_err() {
+        if !alive(pid) {
             return true;
         }
         sleep(Duration::from_millis(50));
@@ -149,7 +157,7 @@ fn stop_ends_the_whole_tree() {
         .map(|l| l.pid)
         .unwrap();
 
-    let sent = actions::signal_server(server.id, Signal::SIGTERM).unwrap();
+    let sent = actions::signal_server(server.id, How::Stop).unwrap();
     assert_eq!(sent, 2);
     assert!(gone(listener_pid), "the child listener must stop too");
     // The parent is our child, so we must reap it (a shell would).
@@ -163,13 +171,10 @@ fn a_reused_pid_is_never_signalled() {
     let pid = child.id();
     let _guard = Spawned(vec![child]);
     let stale = ServerId { pid, started: 1 };
-    let err = actions::signal_server(stale, Signal::SIGTERM).unwrap_err();
+    let err = actions::signal_server(stale, How::Stop).unwrap_err();
     assert!(err.contains("another program"), "{err}");
     sleep(Duration::from_millis(200));
-    assert!(
-        actions::send(pid, Signal::SIGCONT).is_ok(),
-        "sleep must still be running"
-    );
+    assert!(alive(pid), "sleep must still be running");
 }
 
 #[test]
@@ -178,7 +183,7 @@ fn paddock_never_signals_its_own_process() {
     stats.refresh();
     let me = std::process::id();
     let started = stats.start_time(me).unwrap();
-    let result = actions::signal_server(ServerId { pid: me, started }, Signal::SIGCONT);
+    let result = actions::signal_server(ServerId { pid: me, started }, How::Stop);
     let err = result.expect_err("own process must be protected");
     assert!(err.contains("Paddock itself"), "{err}");
 }

@@ -1,0 +1,21 @@
+{
+  "name": "paddock-cli",
+  "version": "0.0.0",
+  "description": "Every dev server on this machine, in one place: a terminal dashboard",
+  "bin": {
+    "paddock": "bin/paddock.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "keywords": ["tui", "dev-server", "ports", "terminal", "monitor"],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/musaJawad004/paddock.git"
+  },
+  "homepage": "https://github.com/musaJawad004/paddock",
+  "engines": {
+    "node": ">=18"
+  }
+}

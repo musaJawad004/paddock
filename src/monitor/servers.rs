@@ -43,7 +43,19 @@ pub trait ProcessTable {
     fn usage(&self, pids: &[u32]) -> ResourceUsage;
 }
 
-const SHELLS: &[&str] = &["zsh", "bash", "fish", "sh", "dash", "ksh", "tcsh", "csh"];
+const SHELLS: &[&str] = &[
+    "zsh",
+    "bash",
+    "fish",
+    "sh",
+    "dash",
+    "ksh",
+    "tcsh",
+    "csh",
+    "cmd",
+    "powershell",
+    "pwsh",
+];
 
 /// Programs that start dev servers and belong to them. Anything else (an
 /// editor, a terminal, an agent, an interactive shell) ends the walk.
@@ -160,10 +172,15 @@ pub fn collect(listeners: &[Listener], table: &impl ProcessTable, cx: &Context) 
                 entry.ports.push(listener.port);
             }
             project_of.insert(*id, root_dir.clone());
+            let command = if listener.command.is_empty() {
+                table.name(listener.pid).unwrap_or_default()
+            } else {
+                listener.command.clone()
+            };
             ports.push(ListeningPort {
                 port: listener.port,
                 pid: listener.pid,
-                command: listener.command.clone(),
+                command,
                 owner: *id,
             });
         }
@@ -263,8 +280,14 @@ fn is_shell_program(cmd: &[String]) -> bool {
         .is_some_and(|c| SHELLS.contains(&base(c).trim_start_matches('-')))
 }
 
+/// The program name from a path, on any OS: `/usr/bin/node` and
+/// `C:\\Program Files\\nodejs\\node.exe` are both `node`.
 fn base(path: &str) -> &str {
-    path.rsplit('/').next().unwrap_or(path)
+    let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+    [".exe", ".cmd", ".bat", ".EXE", ".CMD", ".BAT"]
+        .iter()
+        .find_map(|ext| name.strip_suffix(ext))
+        .unwrap_or(name)
 }
 
 /// True for a process that is part of a dev server's tree: a known runner,
@@ -330,12 +353,7 @@ pub fn clean_cmd(cmd: Vec<String>) -> Vec<String> {
 /// `node .../node_modules/.bin/vite`; "http.server" for `python3 -m
 /// http.server`; otherwise the program's name.
 pub fn server_name(cmd: &[String], exe: Option<&str>) -> String {
-    let base = |s: &str| -> String {
-        Path::new(s)
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| s.to_owned())
-    };
+    let base = |s: &str| -> String { base(s).to_owned() };
     let program = cmd
         .first()
         .map(|c| base(c))

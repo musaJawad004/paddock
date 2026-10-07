@@ -1,0 +1,185 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="860" viewBox="0 0 1200 860">
+<defs>
+<marker id="head-f0883e" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#f0883e"/></marker>
+<marker id="head-7ee787" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7ee787"/></marker>
+<marker id="head-79c0ff" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#79c0ff"/></marker>
+<marker id="head-ff7b72" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#ff7b72"/></marker>
+<marker id="head-7d8590" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#7d8590"/></marker>
+<pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><line x1="0" y1="0" x2="0" y2="8" stroke="#343a46" stroke-width="3"/></pattern>
+</defs>
+<rect x="0" y="0" width="1200" height="860" rx="16" fill="#15171c" stroke="#343a46" stroke-width="2"/>
+<rect x="56" y="34" width="292" height="24" rx="4" fill="#f0883e" opacity="0.28"/>
+<text x="60" y="54" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="30" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">how paddock works</text>
+<text x="260" y="108" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#79c0ff" font-weight="bold" font-style="italic" text-anchor="middle" xml:space="preserve">servers by project</text>
+<text x="820" y="108" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="18" fill="#79c0ff" font-weight="bold" font-style="italic" text-anchor="middle" xml:space="preserve">live logs</text>
+<rect x="60" y="122" width="1080" height="300" rx="10" fill="#1b1f27" stroke="#e6e1d6" stroke-width="2.5"/>
+<rect x="108" y="140" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="140" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="144" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="144" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="144" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="144" width="4" height="4" fill="#e8893a"/>
+<rect x="96" y="148" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="148" width="4" height="4" fill="#6b3410"/>
+<rect x="104" y="148" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="148" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="148" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="148" width="4" height="4" fill="#e8893a"/>
+<rect x="120" y="148" width="4" height="4" fill="#e8893a"/>
+<rect x="92" y="152" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="152" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="152" width="4" height="4" fill="#6b3410"/>
+<rect x="104" y="152" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="152" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="152" width="4" height="4" fill="#1b1410"/>
+<rect x="116" y="152" width="4" height="4" fill="#e8893a"/>
+<rect x="120" y="152" width="4" height="4" fill="#e8893a"/>
+<rect x="124" y="152" width="4" height="4" fill="#e8893a"/>
+<rect x="88" y="156" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="156" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="156" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="156" width="4" height="4" fill="#6b3410"/>
+<rect x="104" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="120" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="124" y="156" width="4" height="4" fill="#e8893a"/>
+<rect x="128" y="156" width="4" height="4" fill="#fff4e2"/>
+<rect x="88" y="160" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="160" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="160" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="160" width="4" height="4" fill="#6b3410"/>
+<rect x="104" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="120" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="124" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="128" y="160" width="4" height="4" fill="#e8893a"/>
+<rect x="132" y="160" width="4" height="4" fill="#fff4e2"/>
+<rect x="88" y="164" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="164" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="164" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="116" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="120" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="124" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="128" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="132" y="164" width="4" height="4" fill="#e8893a"/>
+<rect x="136" y="164" width="4" height="4" fill="#fff4e2"/>
+<rect x="88" y="168" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="168" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="168" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="168" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="168" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="168" width="4" height="4" fill="#e8893a"/>
+<rect x="112" y="168" width="4" height="4" fill="#e8893a"/>
+<rect x="124" y="168" width="4" height="4" fill="#e8893a"/>
+<rect x="128" y="168" width="4" height="4" fill="#f3c08f"/>
+<rect x="132" y="168" width="4" height="4" fill="#f3c08f"/>
+<rect x="136" y="168" width="4" height="4" fill="#f3c08f"/>
+<rect x="140" y="168" width="4" height="4" fill="#f3c08f"/>
+<rect x="88" y="172" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="172" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="172" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="172" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="172" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="172" width="4" height="4" fill="#e8893a"/>
+<rect x="128" y="172" width="4" height="4" fill="#f3c08f"/>
+<rect x="132" y="172" width="4" height="4" fill="#f3c08f"/>
+<rect x="136" y="172" width="4" height="4" fill="#1b1410"/>
+<rect x="140" y="172" width="4" height="4" fill="#f3c08f"/>
+<rect x="88" y="176" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="176" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="176" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="176" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="176" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="176" width="4" height="4" fill="#e8893a"/>
+<rect x="132" y="176" width="4" height="4" fill="#f3c08f"/>
+<rect x="136" y="176" width="4" height="4" fill="#f3c08f"/>
+<rect x="88" y="180" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="180" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="180" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="180" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="180" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="180" width="4" height="4" fill="#e8893a"/>
+<rect x="88" y="184" width="4" height="4" fill="#6b3410"/>
+<rect x="92" y="184" width="4" height="4" fill="#6b3410"/>
+<rect x="96" y="184" width="4" height="4" fill="#6b3410"/>
+<rect x="100" y="184" width="4" height="4" fill="#e8893a"/>
+<rect x="104" y="184" width="4" height="4" fill="#e8893a"/>
+<rect x="108" y="184" width="4" height="4" fill="#e8893a"/>
+<rect x="160" y="140" width="400" height="44" rx="6" fill="#15171c" stroke="#343a46" stroke-width="1.5"/>
+<text x="176" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#f0883e" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">paddock</text>
+<text x="256" y="168" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">● 4 servers in 3 projects</text>
+<text x="84" y="216" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">storefront</text>
+<text x="100" y="242" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">● dev      :3000  2%  129M</text>
+<text x="100" y="268" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">● api      :4000 10%  244M</text>
+<text x="84" y="294" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">mobile-app</text>
+<text x="100" y="320" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">● start    :8081  3%  198M</text>
+<text x="84" y="346" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">billing</text>
+<text x="100" y="372" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e3b341" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">◐ worker   :8080  stopping</text>
+<line x1="600" y1="138" x2="600" y2="408" stroke="#f0883e" stroke-width="2"/>
+<text x="620" y="164" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">storefront › dev  ● running 3m</text>
+<text x="620" y="188" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#79c0ff" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">http://localhost:3000</text>
+<rect x="616" y="206" width="508" height="150" rx="4" fill="#15171c"/>
+<text x="624" y="232" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" xml:space="preserve"><tspan fill="#e6e1d6"> GET /products </tspan><tspan fill="#7ee787">200</tspan><tspan fill="#e6e1d6"> in 486ms</tspan></text>
+<text x="624" y="258" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" xml:space="preserve"><tspan fill="#7ee787"> ✓ Compiled in 188ms</tspan><tspan fill="#e6e1d6"></tspan><tspan fill="#e6e1d6"></tspan></text>
+<text x="624" y="284" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" xml:space="preserve"><tspan fill="#e3b341"> ⚠ Fast Refresh: full reload</tspan><tspan fill="#e6e1d6"></tspan><tspan fill="#e6e1d6"></tspan></text>
+<text x="624" y="310" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" xml:space="preserve"><tspan fill="#e6e1d6"> GET /checkout </tspan><tspan fill="#ff7b72">500</tspan><tspan fill="#e6e1d6"> in 211ms</tspan></text>
+<text x="624" y="336" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" xml:space="preserve"><tspan fill="#e6e1d6"> GET /api/cart </tspan><tspan fill="#7ee787">200</tspan><tspan fill="#e6e1d6"> in 31ms</tspan></text>
+<text x="624" y="392" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#7d8590" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">y copy line   Y copy all   o open   x stop</text>
+<rect x="150" y="500" width="760" height="56" rx="6" fill="url(#hatch)" stroke="#e6e1d6" stroke-width="2"/>
+<text x="530" y="536" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">ports (lsof / netstat)  +  process table</text>
+<path d="M 470 498 L 470 430" fill="none" stroke="#f0883e" stroke-width="2.2" marker-end="url(#head-f0883e)"/>
+<circle cx="440" cy="466" r="15" fill="#15171c" stroke="#e3b341" stroke-width="2.5"/>
+<text x="440" y="472" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#e3b341" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">1</text>
+<rect x="150" y="640" width="230" height="96" rx="8" fill="#1b1f27" stroke="#f0883e" stroke-width="2.5"/>
+<text x="265" y="672" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#7d8590" font-weight="normal" font-style="italic" text-anchor="middle" xml:space="preserve">terminal</text>
+<text x="265" y="704" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">$ npm run dev</text>
+<text x="265" y="726" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">logs captured</text>
+<path d="M 265 636 L 265 562" fill="none" stroke="#7d8590" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#head-7d8590)"/>
+<rect x="410" y="640" width="230" height="96" rx="8" fill="#1b1f27" stroke="#f0883e" stroke-width="2.5"/>
+<text x="525" y="672" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#7d8590" font-weight="normal" font-style="italic" text-anchor="middle" xml:space="preserve">editor</text>
+<text x="525" y="704" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">$ npx expo start</text>
+<text x="525" y="726" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7ee787" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">logs captured</text>
+<path d="M 525 636 L 525 562" fill="none" stroke="#7d8590" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#head-7d8590)"/>
+<rect x="670" y="640" width="230" height="96" rx="8" fill="#1b1f27" stroke="#f0883e" stroke-width="2.5"/>
+<text x="785" y="672" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#7d8590" font-weight="normal" font-style="italic" text-anchor="middle" xml:space="preserve">Claude Code</text>
+<text x="785" y="704" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#e6e1d6" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">$ cargo run</text>
+<path d="M 785 636 L 785 562" fill="none" stroke="#7d8590" stroke-width="2.2" stroke-dasharray="6 5" marker-end="url(#head-7d8590)"/>
+<text x="530" y="772" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#7d8590" font-weight="normal" font-style="italic" text-anchor="middle" xml:space="preserve">you start servers anywhere; Paddock never starts them</text>
+<rect x="950" y="600" width="210" height="150" rx="8" fill="#1b1f27" stroke="#79c0ff" stroke-width="2"/>
+<text x="1055" y="630" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="16" fill="#79c0ff" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">paddock run</text>
+<text x="1055" y="656" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">↳ script</text>
+<text x="1055" y="690" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#7d8590" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">~/.local/state/</text>
+<text x="1055" y="710" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" fill="#7d8590" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">paddock/logs</text>
+<text x="1055" y="736" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="13" fill="#7d8590" font-weight="normal" font-style="normal" text-anchor="middle" xml:space="preserve">private, 3 days</text>
+<path d="M 882 700 C 920 700, 930 690, 946 680" fill="none" stroke="#79c0ff" stroke-width="2.2" marker-end="url(#head-79c0ff)"/>
+<path d="M 1055 596 C 1055 500, 1100 460, 1060 428" fill="none" stroke="#79c0ff" stroke-width="2.2" marker-end="url(#head-79c0ff)"/>
+<circle cx="1105" cy="520" r="15" fill="#15171c" stroke="#79c0ff" stroke-width="2.5"/>
+<text x="1105" y="526" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#79c0ff" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">3</text>
+<path d="M 300 424 C 260 580, 120 600, 150 650" fill="none" stroke="#ff7b72" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#head-ff7b72)"/>
+<text x="66" y="600" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#ff7b72" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">x stop</text>
+<text x="66" y="620" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#ff7b72" font-weight="bold" font-style="normal" text-anchor="start" xml:space="preserve">K kill</text>
+<circle cx="210" cy="540" r="15" fill="#15171c" stroke="#ff7b72" stroke-width="2.5"/>
+<text x="210" y="546" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#ff7b72" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">4</text>
+<circle cx="940" cy="528" r="15" fill="#15171c" stroke="#7ee787" stroke-width="2.5"/>
+<text x="940" y="534" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#7ee787" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">2</text>
+<circle cx="80" cy="822" r="15" fill="#15171c" stroke="#e3b341" stroke-width="2.5"/>
+<text x="80" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#e3b341" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">1</text>
+<text x="104" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">discovery</text>
+<circle cx="249" cy="822" r="15" fill="#15171c" stroke="#7ee787" stroke-width="2.5"/>
+<text x="249" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#7ee787" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">2</text>
+<text x="273" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">one process tree = one server</text>
+<circle cx="598" cy="822" r="15" fill="#15171c" stroke="#79c0ff" stroke-width="2.5"/>
+<text x="598" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#79c0ff" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">3</text>
+<text x="622" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">live logs</text>
+<circle cx="767" cy="822" r="15" fill="#15171c" stroke="#ff7b72" stroke-width="2.5"/>
+<text x="767" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="17" fill="#ff7b72" font-weight="bold" font-style="normal" text-anchor="middle" xml:space="preserve">4</text>
+<text x="791" y="828" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="15" fill="#e6e1d6" font-weight="normal" font-style="normal" text-anchor="start" xml:space="preserve">stop and kill</text>
+</svg>

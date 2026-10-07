@@ -13,6 +13,9 @@
 //! `~/.local/state/paddock/logs`), in a folder only the user can read, and
 //! are deleted after three days.
 //!
+//! Windows has no `script`, so there `paddock run` simply runs the command
+//! (no log yet).
+//!
 //! `paddock init zsh` prints shell functions for npm, yarn, pnpm, bun, npx,
 //! cargo and deno that call `paddock run --auto`. With `--auto`, only
 //! commands that start a dev server (`npm run dev`, `yarn start`, `npx expo
@@ -21,8 +24,6 @@
 
 use std::fs;
 use std::io::{self, IsTerminal};
-use std::os::unix::fs::PermissionsExt;
-use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, SystemTime};
@@ -76,7 +77,8 @@ pub fn logs_dir() -> Option<PathBuf> {
     let state = std::env::var_os("XDG_STATE_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".local/state")))?;
+        .or_else(|| std::env::var_os("HOME").map(|h| Path::new(&h).join(".local/state")))
+        .or_else(|| std::env::var_os("LOCALAPPDATA").map(PathBuf::from))?;
     Some(state.join("paddock").join("logs"))
 }
 
@@ -133,30 +135,53 @@ pub struct RunOptions {
     pub always: bool,
 }
 
-/// Replaces this process with the command, captured or not. Returns only if
-/// the exec itself failed.
+/// Runs the command, captured or not. On Unix this replaces the process
+/// (same pid) and returns only if that failed.
 pub fn run(command: &[String], options: &RunOptions) -> io::Error {
     let Some((program, args)) = command.split_first() else {
         return io::Error::new(io::ErrorKind::InvalidInput, "no command given");
     };
     let interactive = io::stdin().is_terminal() && io::stdout().is_terminal();
-    let capture = std::env::var_os(NESTED).is_none()
+    let capture = cfg!(unix)
+        && std::env::var_os(NESTED).is_none()
         && (!options.auto || is_server_command(program, args))
         && (interactive || options.always);
     if !capture {
-        return Command::new(program).args(args).exec();
+        if cfg!(windows) && !options.auto {
+            eprintln!("paddock: log capture is not available on Windows yet; running as usual");
+        }
+        return run_plain(program, args);
     }
     let log = match prepare_log(program) {
         Ok(log) => log,
         Err(err) => {
             eprintln!("paddock: not capturing logs ({err})");
-            return Command::new(program).args(args).exec();
+            return run_plain(program, args);
         }
     };
-    let err = wrapped(command, &log).env(NESTED, "1").exec();
+    let err = exec(wrapped(command, &log).env(NESTED, "1"));
     // `script` is missing or failed to start: still run what the user asked.
     eprintln!("paddock: could not start script ({err}); running without log capture");
-    Command::new(program).args(args).exec()
+    run_plain(program, args)
+}
+
+fn run_plain(program: &str, args: &[String]) -> io::Error {
+    exec(Command::new(program).args(args))
+}
+
+#[cfg(unix)]
+fn exec(command: &mut Command) -> io::Error {
+    use std::os::unix::process::CommandExt;
+    command.exec()
+}
+
+/// Windows cannot replace a process: run it, then exit with its code.
+#[cfg(not(unix))]
+fn exec(command: &mut Command) -> io::Error {
+    match command.status() {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(err) => err,
+    }
 }
 
 /// `script` with flags that flush every write and print nothing extra.
@@ -183,7 +208,11 @@ fn shell_quote(word: &str) -> String {
 fn prepare_log(program: &str) -> io::Result<PathBuf> {
     let dir = logs_dir().ok_or_else(|| io::Error::other("HOME is not set"))?;
     fs::create_dir_all(&dir)?;
-    fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700))?;
+    }
     // The monitor compares this path with the folder it resolved, so write
     // it resolved too (macOS: /var is /private/var).
     let dir = dir.canonicalize()?;

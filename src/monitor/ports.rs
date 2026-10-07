@@ -1,13 +1,15 @@
 //! Which pid listens on which TCP port.
 //!
 //! Runs `lsof -nP -iTCP -sTCP:LISTEN -F pcn` (no shell, fixed arguments) and
-//! parses its field output. Matching listeners to servers is the job of
+//! parses its field output. On Windows, `netstat -ano` instead; it does not
+//! name the program, so the command is filled in from the process table. Matching listeners to servers is the job of
 //! `servers`, using the process tree from `stats`.
 //!
 //! Observes only: Paddock never opens, connects to or binds a socket here.
 //! Native APIs (libproc on macOS, /proc on Linux) may replace lsof later
 //! behind the same function.
 
+#[cfg(not(windows))]
 use std::io;
 use std::process::Command;
 
@@ -18,6 +20,7 @@ pub struct Listener {
     pub command: String,
 }
 
+#[cfg(not(windows))]
 pub fn scan() -> Result<Vec<Listener>, String> {
     let output = Command::new("lsof")
         .args(["-nP", "-iTCP", "-sTCP:LISTEN", "-F", "pcn"])
@@ -28,6 +31,46 @@ pub fn scan() -> Result<Vec<Listener>, String> {
         })?;
     // lsof exits with 1 when nothing matches; that is an empty list.
     Ok(parse(&String::from_utf8_lossy(&output.stdout)))
+}
+
+#[cfg(windows)]
+pub fn scan() -> Result<Vec<Listener>, String> {
+    let output = Command::new("netstat")
+        .args(["-ano", "-p", "TCP"])
+        .output()
+        .map_err(|err| format!("cannot run netstat: {err}"))?;
+    let mut listeners = parse_netstat(&String::from_utf8_lossy(&output.stdout));
+    let v6 = Command::new("netstat")
+        .args(["-ano", "-p", "TCPv6"])
+        .output();
+    if let Ok(v6) = v6 {
+        listeners.extend(parse_netstat(&String::from_utf8_lossy(&v6.stdout)));
+    }
+    listeners.sort_by_key(|l| (l.port, l.pid));
+    listeners.dedup();
+    Ok(listeners)
+}
+
+/// `  TCP    0.0.0.0:3000    0.0.0.0:0    LISTENING    1234` and the
+/// `[::]:3000` form. The state word is localised on some Windows versions,
+/// so a listening socket is recognised by its remote port being 0.
+pub fn parse_netstat(text: &str) -> Vec<Listener> {
+    text.lines()
+        .filter_map(|line| {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            let [proto, local, remote, .., pid] = fields.as_slice() else {
+                return None;
+            };
+            if !proto.eq_ignore_ascii_case("tcp") || !remote.ends_with(":0") {
+                return None;
+            }
+            Some(Listener {
+                port: local.rsplit(':').next()?.parse().ok()?,
+                pid: pid.parse().ok()?,
+                command: String::new(),
+            })
+        })
+        .collect()
 }
 
 /// Field output: `p<pid>` starts a process, `c<command>` names it, then one
@@ -91,6 +134,26 @@ mod tests {
                     port: 7000,
                     pid: 812,
                     command: "ControlCenter".into()
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn parses_windows_netstat() {
+        let text = "\nActive Connections\n\n  Proto  Local Address  Foreign Address  State  PID\n  TCP    0.0.0.0:3000   0.0.0.0:0   LISTENING   1234\n  TCP    [::]:5173   [::]:0   LISTENING   88\n  TCP    127.0.0.1:50000   127.0.0.1:3000   ESTABLISHED   1234\n";
+        assert_eq!(
+            parse_netstat(text),
+            vec![
+                Listener {
+                    port: 3000,
+                    pid: 1234,
+                    command: String::new()
+                },
+                Listener {
+                    port: 5173,
+                    pid: 88,
+                    command: String::new()
                 },
             ]
         );

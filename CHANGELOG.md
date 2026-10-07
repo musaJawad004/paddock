@@ -6,6 +6,15 @@ All notable changes to Paddock are listed here. The format follows
 
 ## Unreleased
 
+## 0.1.0 (2026-10-07)
+
+- Runs on macOS, Linux and Windows. On Windows, ports come from netstat and
+  stopping a server ends it at once; log capture needs `script`, so it is
+  macOS and Linux only for now.
+- Install with Homebrew (`brew tap musaJawad004/paddock
+  https://github.com/musaJawad004/paddock`), npm (`npm install -g
+  paddock-cli`), cargo, or a release archive. Releases are built by CI for
+  macOS (Apple silicon and Intel), Linux (x64 and arm64) and Windows.
 - Paddock watches instead of starting. It finds every dev server running
   on the machine (from lsof and the process table), groups them by project,
   and shows ports, command, folder, uptime, CPU and memory. Nothing is

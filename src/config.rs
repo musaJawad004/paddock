@@ -68,7 +68,7 @@ impl Keys {
 
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
-    #[error("cannot find a config folder: neither XDG_CONFIG_HOME nor HOME is set")]
+    #[error("cannot find a config folder: XDG_CONFIG_HOME, HOME and USERPROFILE are all unset")]
     NoConfigDir,
     #[error("cannot read {path}: {source}")]
     Read { path: PathBuf, source: io::Error },
@@ -87,7 +87,11 @@ pub fn path() -> Result<PathBuf, ConfigError> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .filter(|v| !v.is_empty())
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| Path::new(&home).join(".config")))
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .or_else(|| std::env::var_os("USERPROFILE"))
+                .map(|home| Path::new(&home).join(".config"))
+        })
         .ok_or(ConfigError::NoConfigDir)?;
     Ok(base.join("paddock").join("config.toml"))
 }

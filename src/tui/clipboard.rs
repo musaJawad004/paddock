@@ -1,7 +1,7 @@
 //! Puts text on the system clipboard.
 //!
 //! Tries the platform's copy command (pbcopy on macOS; wl-copy, xclip or
-//! xsel on Linux), passing the text on stdin with fixed arguments and no
+//! xsel on Linux; clip on Windows), passing the text on stdin with fixed arguments and no
 //! shell. If none is available, the caller falls back to OSC 52, an escape
 //! sequence most terminals (and tmux, and SSH sessions) turn into a
 //! clipboard write.
@@ -16,7 +16,10 @@ use base64_lite::encode;
 #[cfg(target_os = "macos")]
 const COMMANDS: &[(&str, &[&str])] = &[("pbcopy", &[])];
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(windows)]
+const COMMANDS: &[(&str, &[&str])] = &[("clip", &[])];
+
+#[cfg(not(any(target_os = "macos", windows)))]
 const COMMANDS: &[(&str, &[&str])] = &[
     ("wl-copy", &[]),
     ("xclip", &["-selection", "clipboard"]),

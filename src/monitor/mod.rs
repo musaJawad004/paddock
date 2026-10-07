@@ -25,7 +25,6 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use nix::sys::signal::Signal;
 use tokio::sync::mpsc;
 use tokio::time::{self, Instant};
 
@@ -33,6 +32,7 @@ use crate::capture;
 use crate::ipc::protocol::{Event, Request};
 use crate::ipc::transport::ServerEnd;
 use crate::model::{ServerId, Snapshot};
+use actions::How;
 use follow::LogFollower;
 use stats::Stats;
 
@@ -60,9 +60,18 @@ pub fn scan(
     Ok(servers::collect(&listeners, stats, &cx))
 }
 
+/// The user's home folder: `HOME`, or `USERPROFILE` on Windows.
 pub fn home() -> Option<PathBuf> {
-    let home = PathBuf::from(std::env::var_os("HOME")?);
-    Some(home.canonicalize().unwrap_or(home))
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .filter(|h| !h.is_empty())
+        .map(PathBuf::from)?;
+    // On Windows canonicalize adds a \\?\ prefix the process table does not
+    // use, so only resolve links on Unix.
+    if cfg!(unix) {
+        return Some(home.canonicalize().unwrap_or(home));
+    }
+    Some(home)
 }
 
 /// Runs until the TUI hangs up.
@@ -173,14 +182,14 @@ fn start_following(
 
 fn handle(request: Request, stopping: &mut HashMap<ServerId, Instant>) -> Vec<Event> {
     let notice = match request {
-        Request::Stop(id) => match actions::signal_server(id, Signal::SIGTERM) {
+        Request::Stop(id) => match actions::signal_server(id, How::Stop) {
             Ok(_) => {
                 stopping.insert(id, Instant::now() + STOP_GRACE);
                 "Asked the server to stop. It gets 5 seconds before it is killed.".to_owned()
             }
             Err(err) => format!("Could not stop it: {err}."),
         },
-        Request::Kill(id) => match actions::signal_server(id, Signal::SIGKILL) {
+        Request::Kill(id) => match actions::signal_server(id, How::Kill) {
             Ok(n) => {
                 stopping.remove(&id);
                 format!("Killed {n} process{}.", if n == 1 { "" } else { "es" })
@@ -206,7 +215,7 @@ fn escalate(snapshot: &Snapshot, stopping: &mut HashMap<ServerId, Instant>) -> V
     let mut events = Vec::new();
     for id in due {
         stopping.remove(&id);
-        if actions::signal_server(id, Signal::SIGKILL).is_ok() {
+        if actions::signal_server(id, How::Kill).is_ok() {
             events.push(Event::Notice(
                 "The server did not stop within 5 seconds, so it was killed.".into(),
             ));

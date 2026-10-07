@@ -31,7 +31,6 @@ use std::time::{Duration, Instant};
 use crossterm::event::{Event as TermEvent, EventStream, KeyEventKind};
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
-use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -81,8 +80,7 @@ async fn event_loop(
     let mut monitor_open = true;
     // Closing the terminal window or `kill` ends the loop normally, so the
     // terminal is restored.
-    let mut hangup = signal(SignalKind::hangup())?;
-    let mut terminate = signal(SignalKind::terminate())?;
+    let mut closed = window_closed()?;
 
     while !app.should_quit() {
         let effect = tokio::select! {
@@ -118,8 +116,7 @@ async fn event_loop(
                 }
                 Done::Saved(result) => app.update(Msg::Saved(result)),
             },
-            _ = hangup.recv() => break,
-            _ = terminate.recv() => break,
+            _ = &mut closed => break,
             _ = frame.tick() => {
                 app.update(Msg::Tick(Instant::now()));
                 if app.take_dirty() {
@@ -167,14 +164,43 @@ fn spawn_done(done: &mpsc::Sender<Done>, work: impl FnOnce() -> Done + Send + 's
     });
 }
 
+type Closed = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send>>;
+
+/// Resolves when the terminal window closes or the process is asked to quit.
+#[cfg(unix)]
+fn window_closed() -> io::Result<Closed> {
+    use tokio::signal::unix::{SignalKind, signal};
+    let mut hangup = signal(SignalKind::hangup())?;
+    let mut terminate = signal(SignalKind::terminate())?;
+    Ok(Box::pin(async move {
+        tokio::select! {
+            _ = hangup.recv() => {}
+            _ = terminate.recv() => {}
+        }
+    }))
+}
+
+#[cfg(windows)]
+fn window_closed() -> io::Result<Closed> {
+    let mut close = tokio::signal::windows::ctrl_close()?;
+    Ok(Box::pin(async move {
+        close.recv().await;
+    }))
+}
+
 /// Hands a URL to the OS. Paddock itself opens no connection.
 fn open(url: &str) -> Result<(), String> {
-    let program = if cfg!(target_os = "macos") {
-        "open"
+    let (program, args): (&str, &[&str]) = if cfg!(target_os = "macos") {
+        ("open", &[])
+    } else if cfg!(windows) {
+        // The URL is built from a port number, so it holds nothing cmd
+        // could misread.
+        ("cmd", &["/C", "start", ""])
     } else {
-        "xdg-open"
+        ("xdg-open", &[])
     };
     Command::new(program)
+        .args(args)
         .arg(url)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -212,7 +238,7 @@ pub(crate) fn fit(text: &str, width: usize) -> String {
 /// A path with the home folder shown as `~`.
 pub(crate) fn tilde(path: &Path) -> String {
     let text = path.display().to_string();
-    match std::env::var("HOME") {
+    match std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE")) {
         Ok(home) if !home.is_empty() && text.starts_with(&home) => {
             format!("~{}", &text[home.len()..])
         }
