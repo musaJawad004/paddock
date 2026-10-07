@@ -1,34 +1,33 @@
 //! Command-line interface, defined with clap derive.
 //!
-//! - `paddock`: the dashboard, running the projects in config.toml.
-//! - `paddock add [folder]`: add a project (default: the current folder)
-//!   and print what Paddock will run there.
-//! - `paddock remove <name or folder>`: take a project off the list.
-//! - `paddock list`: every project and its processes, without the TUI.
-//! - `paddock --demo`: the dashboard on made-up data; nothing runs.
+//! - `paddock`: the dashboard of every dev server running on this machine.
+//! - `paddock list`: the same list printed once, without the dashboard.
+//! - `paddock --demo`: the dashboard on made-up servers.
 //!
-//! Flags for the dashboard: `--no-splash`, `--theme <name>` for one run,
-//! `--config-path` to print where settings live. Help text follows
+//! Flags: `--no-splash`, `--theme <name>` for one run, `--config-path` to
+//! print where settings live. Help text follows
 //! `.claude/rules/writing-style.md`.
 
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
 use std::time::Duration;
 
 use clap::{Parser, Subcommand};
-use color_eyre::eyre::{WrapErr, eyre};
+use color_eyre::eyre::eyre;
 
+use crate::monitor::stats::Stats;
 use crate::tui::theme::PALETTES;
-use crate::{config, daemon, demo, detect, ipc, tui};
+use crate::{config, demo, ipc, monitor, tui};
 
 #[derive(Debug, Parser)]
 #[command(
     name = "paddock",
     version,
-    about = "A terminal workspace for your dev servers",
-    long_about = "A terminal workspace for your dev servers.\n\n\
-        Run `paddock` to open the dashboard, `paddock add` in a project folder \
-        to add it. Inside, press ? for keys and , for settings. Everything \
-        runs on this machine; Paddock has no network code."
+    about = "Every dev server on this machine, in one place",
+    long_about = "Every dev server on this machine, in one place.\n\n\
+        Paddock finds the servers you start in any terminal, groups them by \
+        project, and lets you open, copy, stop or kill them. It never starts \
+        anything and has no network code. Inside, press ? for keys and , for \
+        settings."
 )]
 pub struct Cli {
     #[command(subcommand)]
@@ -42,7 +41,7 @@ pub struct Cli {
     #[arg(long, value_name = "NAME", value_parser = theme_name, global = true)]
     theme: Option<String>,
 
-    /// Show the dashboard with made-up projects. Nothing is started.
+    /// Show the dashboard with made-up servers.
     #[arg(long)]
     demo: bool,
 
@@ -53,17 +52,7 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Add a project folder and show what Paddock found to run in it.
-    Add {
-        /// The folder to add. Defaults to the current one.
-        folder: Option<PathBuf>,
-    },
-    /// Remove a project from the list. Its files are not touched.
-    Remove {
-        /// The project's name (its folder name) or its folder.
-        project: String,
-    },
-    /// List projects and the processes Paddock found in each.
+    /// Print the running dev servers once and exit.
     List,
 }
 
@@ -82,8 +71,6 @@ pub async fn run() -> color_eyre::Result<()> {
         return Ok(());
     }
     match cli.command {
-        Some(Command::Add { folder }) => add(folder),
-        Some(Command::Remove { project }) => remove(&project),
         Some(Command::List) => list(),
         None => dashboard(cli.demo, cli.no_splash, cli.theme).await,
     }
@@ -104,107 +91,56 @@ async fn dashboard(demo: bool, no_splash: bool, theme: Option<String>) -> color_
         source: if demo { "demo data" } else { "local" }.into(),
         splash: config.ui.splash && !no_splash,
         notice,
-        stops_on_quit: !demo,
-        cwd: std::env::current_dir().unwrap_or_default(),
-        config: config.clone(),
+        config,
     };
 
     let (client, server) = ipc::transport::in_process();
-    let backend = if demo {
+    let watcher = if demo {
         tokio::spawn(demo::run(server))
     } else {
-        let path = config::path()?;
-        tokio::spawn(daemon::run(server, config, path))
+        tokio::spawn(monitor::run(server))
     };
     let result = tui::run(client, options).await;
-    // The TUI dropped its end, so the backend is now stopping every process
-    // it started. Give it time to do that cleanly.
-    if !demo {
-        eprintln!("Stopping processes...");
-    }
-    let _ = tokio::time::timeout(Duration::from_secs(8), backend).await;
+    let _ = tokio::time::timeout(Duration::from_secs(2), watcher).await;
     Ok(result?)
 }
 
-fn add(folder: Option<PathBuf>) -> color_eyre::Result<()> {
-    let folder = match folder {
-        Some(folder) => config::expand_home(&folder),
-        None => std::env::current_dir()?,
-    };
-    let path = folder
-        .canonicalize()
-        .wrap_err_with(|| format!("{} does not exist", folder.display()))?;
-    if !path.is_dir() {
-        return Err(eyre!("{} is not a folder", path.display()));
-    }
-    let name = detect::project_name(&path);
-    let mut added = false;
-    config::update(|config| {
-        if !config
-            .projects
-            .iter()
-            .any(|p| config::expand_home(p) == path)
-        {
-            config.projects.push(path.clone());
-            added = true;
-        }
-    })?;
-    if added {
-        println!("Added {name} ({})", tui::tilde(&path));
-    } else {
-        println!("{name} is already in Paddock");
-    }
-    print_processes(&path);
-    Ok(())
-}
-
-fn remove(project: &str) -> color_eyre::Result<()> {
-    let as_path = config::expand_home(Path::new(project)).canonicalize().ok();
-    let mut removed = None;
-    config::update(|config| {
-        config.projects.retain(|p| {
-            let p = config::expand_home(p);
-            let matches = Some(&p) == as_path.as_ref() || detect::project_name(&p) == project;
-            if matches {
-                removed = Some(p);
-            }
-            !matches
-        });
-    })?;
-    match removed {
-        Some(path) => println!(
-            "Removed {} from Paddock. Its files are untouched.",
-            tui::tilde(&path)
-        ),
-        None => println!("{project} is not in Paddock. `paddock list` shows what is."),
-    }
-    Ok(())
-}
-
 fn list() -> color_eyre::Result<()> {
-    let config = config::load()?;
-    if config.projects.is_empty() {
-        println!("No projects yet. Run `paddock add` in a project folder.");
-        return Ok(());
+    let home = monitor::home().ok_or_else(|| eyre!("HOME is not set"))?;
+    let mut stats = Stats::new();
+    let snapshot = monitor::scan(&mut stats, &home, &HashSet::new()).map_err(|e| eyre!(e))?;
+    if snapshot.projects.is_empty() {
+        println!("No dev servers running.");
     }
-    for (i, project) in config.projects.iter().enumerate() {
-        let path = config::expand_home(project);
+    for (i, project) in snapshot.projects.iter().enumerate() {
         if i > 0 {
             println!();
         }
-        println!("{} ({})", detect::project_name(&path), tui::tilde(&path));
-        print_processes(&path);
+        println!(
+            "{} ({}, {})",
+            project.name,
+            tui::tilde(&project.path),
+            project.kind
+        );
+        for server in &project.servers {
+            let ports: Vec<String> = server.ports.iter().map(|p| format!(":{p}")).collect();
+            println!(
+                "  {:<14} {:<14} pid {:<7} {}",
+                server.name,
+                ports.join(" "),
+                server.id.pid,
+                server.command
+            );
+        }
+    }
+    let foreign: Vec<String> = snapshot
+        .ports
+        .iter()
+        .filter(|p| p.owner.is_none())
+        .map(|p| format!(":{} {} (pid {})", p.port, p.command, p.pid))
+        .collect();
+    if !foreign.is_empty() {
+        println!("\nOther programs on dev ports: {}", foreign.join(", "));
     }
     Ok(())
-}
-
-fn print_processes(path: &Path) {
-    let specs = detect::detect(path);
-    if specs.is_empty() {
-        println!("  nothing to run found; add a paddock.toml to say what to run");
-    }
-    for spec in specs {
-        let port = spec.port.map(|p| format!(":{p}")).unwrap_or_default();
-        println!("  {:<14} {:<7} {}", spec.name, port, spec.command);
-    }
 }

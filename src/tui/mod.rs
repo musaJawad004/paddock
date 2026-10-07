@@ -3,18 +3,16 @@
 //!
 //! Built the way `.claude/skills/ratatui-tui/SKILL.md` describes: state and
 //! updates in `app`, one view module per screen area, keys in one keymap,
-//! colours in one theme. Side effects (copying, saving the config) run on
-//! blocking tasks and report back as messages, so the UI never stalls.
+//! colours in one theme. Side effects (copying, opening a URL, saving the
+//! config) run on blocking tasks and report back as messages, so the UI
+//! never stalls.
 
-mod ansi;
 pub mod app;
 mod brand;
 mod clipboard;
 mod details;
-mod folders;
 mod help;
 pub mod keys;
-mod logs_view;
 mod overlay;
 pub mod palette;
 mod settings;
@@ -25,11 +23,13 @@ pub mod theme;
 
 use std::io::{self, Write};
 use std::path::Path;
+use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
 use crossterm::event::{Event as TermEvent, EventStream, KeyEventKind};
 use futures::StreamExt;
 use ratatui::DefaultTerminal;
+use tokio::signal::unix::{SignalKind, signal};
 use tokio::sync::mpsc;
 use unicode_width::{UnicodeWidthChar, UnicodeWidthStr};
 
@@ -47,10 +47,6 @@ pub struct Options {
     pub splash: bool,
     /// Shown once at start-up, e.g. why the config could not be read.
     pub notice: Option<String>,
-    /// Quitting stops the processes, so the TUI asks before quitting.
-    pub stops_on_quit: bool,
-    /// Suggested when adding a project.
-    pub cwd: std::path::PathBuf,
 }
 
 /// Takes over the terminal until the user quits.
@@ -63,7 +59,8 @@ pub async fn run(client: ClientEnd, options: Options) -> io::Result<()> {
 
 /// Results of side effects, coming back from blocking tasks.
 enum Done {
-    Copied { lines: usize, osc52: Option<String> },
+    Copied { what: String, osc52: Option<String> },
+    Opened(Result<(), String>),
     Saved(Result<(), String>),
 }
 
@@ -72,19 +69,18 @@ async fn event_loop(
     mut client: ClientEnd,
     options: Options,
 ) -> io::Result<()> {
-    let mut app = App::new(options.config, options.source, options.splash)
-        .with_backend(options.stops_on_quit, options.cwd);
+    let mut app = App::new(options.config, options.source, options.splash);
     if let Some(notice) = options.notice {
         app.notify(NoticeKind::Error, notice);
     }
     let mut input = EventStream::new();
     let mut frame = tokio::time::interval(FRAME);
     let (done_tx, mut done_rx) = mpsc::channel::<Done>(16);
-    let mut backend_open = true;
+    let mut monitor_open = true;
     // Closing the terminal window or `kill` ends the loop normally, so the
-    // terminal is restored and the processes are stopped.
-    let mut hangup = unix_signal(tokio::signal::unix::SignalKind::hangup())?;
-    let mut terminate = unix_signal(tokio::signal::unix::SignalKind::terminate())?;
+    // terminal is restored.
+    let mut hangup = signal(SignalKind::hangup())?;
+    let mut terminate = signal(SignalKind::terminate())?;
 
     while !app.should_quit() {
         let effect = tokio::select! {
@@ -97,21 +93,26 @@ async fn event_loop(
                 Some(Err(err)) => return Err(err),
                 None => break,
             },
-            event = client.events.recv(), if backend_open => match event {
-                Some(event) => app.update(Msg::Backend(event)),
+            event = client.events.recv(), if monitor_open => match event {
+                Some(event) => app.update(Msg::Monitor(event)),
                 None => {
-                    backend_open = false;
-                    app.update(Msg::BackendGone)
+                    monitor_open = false;
+                    app.update(Msg::MonitorGone)
                 }
             },
             Some(done) = done_rx.recv() => match done {
-                Done::Copied { lines, osc52 } => {
+                Done::Copied { what, osc52 } => {
                     if let Some(sequence) = osc52 {
                         let mut out = io::stdout();
                         out.write_all(sequence.as_bytes())?;
                         out.flush()?;
                     }
-                    app.update(Msg::Copied { lines })
+                    app.update(Msg::Copied(what))
+                }
+                Done::Opened(Ok(())) => None,
+                Done::Opened(Err(err)) => {
+                    app.notify(NoticeKind::Error, err);
+                    None
                 }
                 Done::Saved(result) => app.update(Msg::Saved(result)),
             },
@@ -130,39 +131,55 @@ async fn event_loop(
             None => {}
             Some(Effect::Send(request)) => {
                 if client.requests.send(request).await.is_err() {
-                    app.update(Msg::BackendGone);
+                    app.update(Msg::MonitorGone);
                 }
             }
-            Some(Effect::Copy { text, lines }) => {
-                let done = done_tx.clone();
-                tokio::spawn(async move {
-                    let copied = tokio::task::spawn_blocking(move || clipboard::copy(&text)).await;
-                    let osc52 = match copied {
-                        Ok(clipboard::Copied::System) => None,
-                        Ok(clipboard::Copied::Osc52(sequence)) => Some(sequence),
-                        Err(_) => return,
-                    };
-                    let _ = done.send(Done::Copied { lines, osc52 }).await;
-                });
-            }
-            Some(Effect::Save(config)) => {
-                let done = done_tx.clone();
-                tokio::spawn(async move {
-                    let saved = tokio::task::spawn_blocking(move || config::save(&config)).await;
-                    let result = match saved {
-                        Ok(result) => result.map_err(|e| e.to_string()),
-                        Err(e) => Err(e.to_string()),
-                    };
-                    let _ = done.send(Done::Saved(result)).await;
-                });
-            }
+            Some(Effect::Copy { text, what }) => spawn_done(&done_tx, move || {
+                let osc52 = match clipboard::copy(&text) {
+                    clipboard::Copied::System => None,
+                    clipboard::Copied::Osc52(sequence) => Some(sequence),
+                };
+                Done::Copied { what, osc52 }
+            }),
+            Some(Effect::Open(url)) => spawn_done(&done_tx, move || Done::Opened(open(&url))),
+            Some(Effect::Save(config)) => spawn_done(&done_tx, move || {
+                Done::Saved(config::save(&config).map_err(|e| e.to_string()))
+            }),
         }
     }
     Ok(())
 }
 
-fn unix_signal(kind: tokio::signal::unix::SignalKind) -> io::Result<tokio::signal::unix::Signal> {
-    tokio::signal::unix::signal(kind)
+/// Runs `work` on a blocking thread and sends its result back to the loop.
+fn spawn_done(done: &mpsc::Sender<Done>, work: impl FnOnce() -> Done + Send + 'static) {
+    let done = done.clone();
+    tokio::spawn(async move {
+        if let Ok(result) = tokio::task::spawn_blocking(work).await {
+            let _ = done.send(result).await;
+        }
+    });
+}
+
+/// Hands a URL to the OS. Paddock itself opens no connection.
+fn open(url: &str) -> Result<(), String> {
+    let program = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    Command::new(program)
+        .arg(url)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map_err(|err| format!("Could not run {program}: {err}"))
+        .and_then(|status| {
+            status
+                .success()
+                .then_some(())
+                .ok_or_else(|| format!("{program} could not open {url}"))
+        })
 }
 
 /// Cuts or pads `text` to exactly `width` terminal columns, counting wide

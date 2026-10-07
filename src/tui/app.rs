@@ -1,15 +1,12 @@
 //! TUI state and the update function.
 //!
 //! `App::update` is the only place state changes. It takes a `Msg` (a key,
-//! a timer tick, a backend event, the result of a side effect) and may
+//! a timer tick, a monitor event, the result of a side effect) and may
 //! return an `Effect` for the event loop to carry out: send a request, copy
-//! text, save the config. It never touches the terminal or the disk, so it
-//! is tested directly. Overlays (help, settings, dialogs) handle their own
-//! keys in `overlay.rs` and `settings.rs`.
+//! text, open a URL, save the config. It never touches the terminal or the
+//! disk, so it is tested directly. Popups handle their own keys in
+//! `overlay.rs` and `settings.rs`.
 
-use std::cell::Cell;
-use std::collections::{HashMap, VecDeque};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -17,20 +14,15 @@ use ratatui::buffer::Buffer;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::widgets::{Block, Paragraph, Widget};
 
-use super::ansi;
-use super::folders::FolderPicker;
 use super::keys::{Action, Keymap};
-use super::overlay::{Confirmed, Input, InputPurpose, Overlay, Picker};
+use super::overlay::Overlay;
 use super::settings::Settings;
 use super::theme::Theme;
-use super::{details, folders, help, logs_view, overlay, settings, sidebar, splash, status_bar};
+use super::{details, help, overlay, settings, sidebar, splash, status_bar};
 use crate::config::Config;
 use crate::ipc::protocol::{Event, Request};
-use crate::model::{Discovered, ListeningPort, ProcessId, ProcessInfo, ProcessState, Snapshot};
+use crate::model::{ListeningPort, Server, ServerId, ServerState, Snapshot};
 
-/// Lines kept per process on the TUI side. The backend keeps the full
-/// scrollback; this is only what can be scrolled to without asking for more.
-pub const LOG_LIMIT: usize = 5_000;
 const MIN_WIDTH: u16 = 70;
 const MIN_HEIGHT: u16 = 14;
 const NOTICE_TIME: Duration = Duration::from_secs(6);
@@ -40,11 +32,9 @@ pub enum Msg {
     Resize,
     /// Sent by the frame timer; animations and clocks advance on it.
     Tick(Instant),
-    Backend(Event),
-    BackendGone,
-    Copied {
-        lines: usize,
-    },
+    Monitor(Event),
+    MonitorGone,
+    Copied(String),
     Saved(Result<(), String>),
 }
 
@@ -52,21 +42,19 @@ pub enum Msg {
 #[derive(Debug, PartialEq)]
 pub enum Effect {
     Send(Request),
-    Copy { text: String, lines: usize },
+    /// `what` names it in the notice, e.g. "the URL".
+    Copy {
+        text: String,
+        what: String,
+    },
+    Open(String),
     Save(Config),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    Processes,
+    Servers,
     Ports,
-    Logs,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum View {
-    Logs,
-    Details,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,33 +74,20 @@ pub struct App {
     pub(super) theme: Theme,
     pub(super) keymap: Keymap,
     pub(super) config: Config,
-    /// Where the data comes from, shown in the header ("demo data").
+    /// Where the data comes from, shown in the header ("local", "demo data").
     pub(super) source: String,
     pub(super) snapshot: Snapshot,
-    pub(super) logs: HashMap<ProcessId, VecDeque<String>>,
-    /// Index into `processes()`, the flattened list across projects.
-    pub(super) selected: usize,
+    /// Followed across scans by id, not by position.
+    selected: Option<ServerId>,
     pub(super) selected_port: usize,
     pub(super) focus: Focus,
-    pub(super) view: View,
-    /// Lines scrolled up from the newest. 0 follows new output.
-    pub(super) scroll: usize,
-    /// Highlighted log line while the log pane has focus (index into logs).
-    pub(super) cursor: Option<usize>,
-    /// Other end of a selection started with `mark`.
-    pub(super) mark: Option<usize>,
     pub(super) overlay: Option<Overlay>,
     pub(super) notice: Option<Notice>,
     pub(super) splash_started: Option<Instant>,
     pub(super) now: Instant,
-    /// Log pane height from the last frame, for paging and keeping the
-    /// cursor on screen.
-    pub(super) log_height: Cell<usize>,
-    /// True when quitting stops the processes (the supervisor runs inside
-    /// the TUI until the v0.2 daemon), so quitting asks first.
-    stops_on_quit: bool,
-    /// Suggested folder when adding a project.
-    cwd: PathBuf,
+    /// False until the first scan arrives, so the empty state is not shown
+    /// while Paddock is still looking.
+    pub(super) scanned: bool,
     dirty: bool,
     quit: bool,
 }
@@ -136,34 +111,17 @@ impl App {
             config,
             source: source.into(),
             snapshot: Snapshot::default(),
-            logs: HashMap::new(),
-            selected: 0,
+            selected: None,
             selected_port: 0,
-            focus: Focus::Processes,
-            view: View::Logs,
-            scroll: 0,
-            cursor: None,
-            mark: None,
+            focus: Focus::Servers,
             overlay: None,
             notice,
             splash_started: splash.then_some(now),
             now,
-            log_height: Cell::new(20),
-            stops_on_quit: false,
-            cwd: PathBuf::new(),
+            scanned: false,
             dirty: true,
             quit: false,
         }
-    }
-
-    pub fn with_backend(mut self, stops_on_quit: bool, cwd: PathBuf) -> Self {
-        self.stops_on_quit = stops_on_quit;
-        self.cwd = cwd;
-        self
-    }
-
-    pub(super) fn quit_now(&mut self) {
-        self.quit = true;
     }
 
     pub fn should_quit(&self) -> bool {
@@ -189,31 +147,17 @@ impl App {
             .map(|start| self.now.saturating_duration_since(start))
     }
 
-    pub(super) fn processes(&self) -> impl Iterator<Item = &ProcessInfo> {
-        self.snapshot.projects.iter().flat_map(|p| &p.processes)
+    pub(super) fn selected_server(&self) -> Option<&Server> {
+        let id = self.selected?;
+        self.snapshot.servers().find(|s| s.id == id)
     }
 
-    pub(super) fn selected_process(&self) -> Option<&ProcessInfo> {
-        self.processes().nth(self.selected)
+    fn selected_index(&self) -> Option<usize> {
+        let id = self.selected?;
+        self.snapshot.servers().position(|s| s.id == id)
     }
 
-    /// Rows after the processes are servers running outside Paddock.
-    pub(super) fn selected_discovered(&self) -> Option<&Discovered> {
-        let processes = self.processes().count();
-        self.snapshot
-            .discovered
-            .get(self.selected.checked_sub(processes)?)
-    }
-
-    fn rows(&self) -> usize {
-        self.processes().count() + self.snapshot.discovered.len()
-    }
-
-    pub(super) fn selected_logs(&self) -> Option<&VecDeque<String>> {
-        self.logs.get(&self.selected_process()?.id)
-    }
-
-    fn selected_port(&self) -> Option<&ListeningPort> {
+    fn selected_listener(&self) -> Option<&ListeningPort> {
         self.snapshot.ports.get(self.selected_port)
     }
 
@@ -226,24 +170,16 @@ impl App {
         match msg {
             Msg::Key(key) => self.on_key(key),
             Msg::Tick(_) | Msg::Resize => None,
-            Msg::Backend(event) => {
+            Msg::Monitor(event) => {
                 self.on_event(event);
                 None
             }
-            Msg::BackendGone => {
-                self.notify(NoticeKind::Error, "The backend stopped. Press q to quit.");
+            Msg::MonitorGone => {
+                self.notify(NoticeKind::Error, "The monitor stopped. Press q to quit.");
                 None
             }
-            Msg::Copied { lines } => {
-                let what = if lines == 1 {
-                    "1 line".to_owned()
-                } else {
-                    format!("{lines} lines")
-                };
-                self.notify(
-                    NoticeKind::Success,
-                    format!("Copied {what} to the clipboard."),
-                );
+            Msg::Copied(what) => {
+                self.notify(NoticeKind::Success, format!("Copied {what}."));
                 None
             }
             Msg::Saved(Ok(())) => None,
@@ -272,7 +208,8 @@ impl App {
                 self.dirty = true;
             }
         }
-        if second_changed && self.view == View::Details {
+        // Uptime in the details pane.
+        if second_changed && self.selected.is_some() {
             self.dirty = true;
         }
     }
@@ -291,418 +228,162 @@ impl App {
         self.notice = None;
         match key.code {
             KeyCode::Esc => {
-                self.on_escape();
+                self.focus = Focus::Servers;
                 return None;
             }
-            KeyCode::Enter => return self.on_enter(),
+            KeyCode::Enter if self.focus == Focus::Ports => {
+                if let Some(owner) = self.selected_listener().and_then(|l| l.owner) {
+                    self.selected = Some(owner);
+                    self.focus = Focus::Servers;
+                }
+                return None;
+            }
             _ => {}
         }
         self.on_action(self.keymap.action(key)?)
     }
 
-    fn on_escape(&mut self) {
-        if self.mark.take().is_some() {
-            return;
-        }
-        if self.focus != Focus::Processes {
-            self.set_focus(Focus::Processes);
-        }
-    }
-
-    fn on_enter(&mut self) -> Option<Effect> {
-        match self.focus {
-            Focus::Processes => self.set_focus(Focus::Logs),
-            Focus::Ports => {
-                let owner = self.selected_port()?.owner.clone()?;
-                self.select_id(&owner);
-                self.set_focus(Focus::Processes);
-            }
-            Focus::Logs => return self.copy_selection(),
-        }
-        None
-    }
-
     fn on_action(&mut self, action: Action) -> Option<Effect> {
-        if let Some(found) = self
-            .selected_discovered()
-            .filter(|_| self.focus == Focus::Processes)
-            .cloned()
-            && let Some(handled) = self.on_discovered_action(action, found)
-        {
-            return handled;
-        }
         match action {
             Action::Up => self.move_by(-1),
             Action::Down => self.move_by(1),
-            Action::NextPane => self.cycle_focus(1),
-            Action::PrevPane => self.cycle_focus(-1),
-            Action::Start => return self.request_start(),
-            Action::Stop => return self.request_stop(),
-            Action::Restart => {
-                let id = self.selected_process()?.id.clone();
-                return Some(Effect::Send(Request::Restart(id)));
-            }
-            Action::Kill => self.confirm_kill(),
-            Action::ChangePort => self.ask_port(),
-            Action::MoveProject => self.pick_project(),
-            Action::Details => {
-                self.view = match self.view {
-                    View::Logs => View::Details,
-                    View::Details => View::Logs,
+            Action::NextPane | Action::PrevPane => {
+                self.focus = match self.focus {
+                    Focus::Servers => Focus::Ports,
+                    Focus::Ports => Focus::Servers,
                 };
             }
-            Action::Mark => {
-                if self.focus != Focus::Logs {
-                    self.set_focus(Focus::Logs);
-                }
-                self.mark = match self.mark {
-                    Some(_) => None,
-                    None => self.cursor,
-                };
-            }
-            Action::Copy => return self.copy_selection(),
-            Action::CopyAll => return self.copy_all(),
-            Action::ScrollUp => self.page(-1),
-            Action::ScrollDown => self.page(1),
-            Action::Follow => {
-                self.scroll = 0;
-                if self.cursor.is_some() {
-                    self.cursor = self.last_line();
-                }
+            Action::Stop => self.confirm_stop(false),
+            Action::Kill => self.confirm_stop(true),
+            Action::Open => return self.open(),
+            Action::CopyUrl => return self.copy_url(),
+            Action::CopyCommand => {
+                let server = self.selected_server()?;
+                return Some(Effect::Copy {
+                    text: server.command.clone(),
+                    what: "the command".into(),
+                });
             }
             Action::Settings => {
                 self.overlay = Some(Overlay::Settings(Settings::new(self.theme.name())));
             }
-            Action::AddProject => self.open_folder_picker(),
-            Action::RemoveProject => self.confirm_remove_project(),
             Action::Help => self.overlay = Some(Overlay::Help),
-            Action::Quit => self.request_quit(),
+            Action::Quit => self.quit = true,
         }
         None
     }
 
-    fn set_focus(&mut self, focus: Focus) {
-        self.focus = focus;
-        self.mark = None;
-        if focus == Focus::Logs {
-            self.view = View::Logs;
-            self.cursor = self.visible_bottom();
-        } else {
-            self.cursor = None;
-        }
-    }
-
-    fn cycle_focus(&mut self, step: isize) {
-        const ORDER: [Focus; 3] = [Focus::Processes, Focus::Ports, Focus::Logs];
-        let at = ORDER.iter().position(|f| *f == self.focus).unwrap_or(0);
-        let next = (at as isize + step).rem_euclid(ORDER.len() as isize) as usize;
-        self.set_focus(ORDER[next]);
-    }
-
     fn move_by(&mut self, step: isize) {
         match self.focus {
-            Focus::Processes => self.select(self.selected.saturating_add_signed(step)),
+            Focus::Servers => {
+                let ids: Vec<ServerId> = self.snapshot.servers().map(|s| s.id).collect();
+                let Some(last) = ids.len().checked_sub(1) else {
+                    return;
+                };
+                let at = self.selected_index().unwrap_or(0);
+                self.selected = Some(ids[at.saturating_add_signed(step).min(last)]);
+            }
             Focus::Ports => {
                 let last = self.snapshot.ports.len().saturating_sub(1);
                 self.selected_port = self.selected_port.saturating_add_signed(step).min(last);
             }
-            Focus::Logs => self.move_cursor(step),
         }
     }
 
-    fn move_cursor(&mut self, step: isize) {
-        let Some(last) = self.last_line() else {
-            return;
-        };
-        let cursor = self.cursor.unwrap_or(last).saturating_add_signed(step);
-        self.cursor = Some(cursor.min(last));
-        self.keep_cursor_visible();
-    }
-
-    fn page(&mut self, direction: isize) {
-        let page = self.log_height.get().saturating_sub(1).max(1);
-        if self.focus == Focus::Logs {
-            self.move_cursor(direction * page as isize);
-            return;
-        }
-        let len = self.selected_logs().map_or(0, VecDeque::len);
-        self.scroll = if direction < 0 {
-            (self.scroll + page).min(len)
-        } else {
-            self.scroll.saturating_sub(page)
-        };
-    }
-
-    fn last_line(&self) -> Option<usize> {
-        self.selected_logs()?.len().checked_sub(1)
-    }
-
-    /// The newest line on screen: where the cursor starts.
-    fn visible_bottom(&self) -> Option<usize> {
-        let len = self.selected_logs()?.len();
-        len.checked_sub(1 + self.scroll.min(len.saturating_sub(1)))
-    }
-
-    fn keep_cursor_visible(&mut self) {
-        let (Some(cursor), Some(len)) = (self.cursor, self.selected_logs().map(VecDeque::len))
-        else {
-            return;
-        };
-        let height = self.log_height.get().max(1);
-        let end = len - self.scroll.min(len);
-        let start = end.saturating_sub(height);
-        if cursor < start {
-            self.scroll = len.saturating_sub(cursor + height);
-        } else if cursor >= end {
-            self.scroll = len - cursor - 1;
+    /// The port the user is pointing at: the selected listener in the Ports
+    /// pane, else the selected server's first port.
+    fn target_port(&self) -> Option<u16> {
+        match self.focus {
+            Focus::Ports => self.selected_listener().map(|l| l.port),
+            Focus::Servers => self.selected_server()?.ports.first().copied(),
         }
     }
 
-    /// First and last selected log line, inclusive.
-    pub(super) fn selection(&self) -> Option<(usize, usize)> {
-        let cursor = self.cursor?;
-        let mark = self.mark.unwrap_or(cursor);
-        Some((cursor.min(mark), cursor.max(mark)))
-    }
-
-    fn copy_selection(&mut self) -> Option<Effect> {
-        let Some((from, to)) = self.selection() else {
-            let tab = self.keymap.first(Action::NextPane);
-            let all = self.keymap.first(Action::CopyAll);
-            self.notify(
-                NoticeKind::Info,
-                format!("Press {tab} to pick lines in the logs, or {all} to copy them all."),
-            );
+    fn open(&mut self) -> Option<Effect> {
+        let Some(port) = self.target_port() else {
+            self.notify(NoticeKind::Info, "Nothing selected to open.");
             return None;
         };
-        let logs = self.selected_logs()?;
-        let text: Vec<String> = logs.range(from..=to).map(|l| ansi::strip(l)).collect();
-        self.mark = None;
+        Some(Effect::Open(format!("http://localhost:{port}")))
+    }
+
+    fn copy_url(&mut self) -> Option<Effect> {
+        let port = self.target_port()?;
         Some(Effect::Copy {
-            lines: text.len(),
-            text: text.join("\n"),
+            text: format!("http://localhost:{port}"),
+            what: "the URL".into(),
         })
     }
 
-    fn copy_all(&mut self) -> Option<Effect> {
-        let Some(logs) = self.selected_logs().filter(|l| !l.is_empty()) else {
-            self.notify(NoticeKind::Info, "Nothing to copy yet.");
-            return None;
-        };
-        let text: Vec<String> = logs.iter().map(|l| ansi::strip(l)).collect();
-        Some(Effect::Copy {
-            lines: text.len(),
-            text: text.join("\n"),
-        })
-    }
-
-    fn select(&mut self, index: usize) {
-        let last = self.rows().saturating_sub(1);
-        let index = index.min(last);
-        if index != self.selected {
-            self.selected = index;
-            self.scroll = 0;
-            self.mark = None;
-            if self.cursor.is_some() {
-                self.cursor = self.last_line();
-            }
-        }
-    }
-
-    fn select_id(&mut self, id: &ProcessId) {
-        let index = self.processes().position(|p| &p.id == id);
-        if let Some(index) = index {
-            self.select(index);
-        }
-    }
-
-    fn request_start(&mut self) -> Option<Effect> {
-        let process = self.selected_process()?;
-        if process.state.is_up() || process.state == ProcessState::Stopping {
-            let text = format!("{} is already {}.", process.id, process.state.label());
-            self.notify(NoticeKind::Info, text);
-            return None;
-        }
-        Some(Effect::Send(Request::Start(process.id.clone())))
-    }
-
-    fn request_stop(&mut self) -> Option<Effect> {
-        let process = self.selected_process()?;
-        if !process.state.is_up() {
-            let text = format!("{} is not running.", process.id);
-            self.notify(NoticeKind::Info, text);
-            return None;
-        }
-        Some(Effect::Send(Request::Stop(process.id.clone())))
-    }
-
-    fn confirm_kill(&mut self) {
+    fn confirm_stop(&mut self, force: bool) {
         if self.focus == Focus::Ports {
-            let Some(port) = self.selected_port() else {
+            let Some(listener) = self.selected_listener() else {
                 return;
             };
-            let (message, request) = match &port.owner {
-                Some(owner) => (
-                    format!(
-                        "Kill {owner} (pid {}) listening on :{}?",
-                        port.pid, port.port
-                    ),
-                    Request::Kill(owner.clone()),
-                ),
+            let (message, request) = match listener.owner {
+                Some(owner) => {
+                    let name = self.server_label(owner);
+                    let verb = if force { "Kill" } else { "Stop" };
+                    let request = if force {
+                        Request::Kill(owner)
+                    } else {
+                        Request::Stop(owner)
+                    };
+                    (
+                        format!("{verb} {name}, which holds :{}?", listener.port),
+                        request,
+                    )
+                }
                 None => (
                     format!(
-                        "Kill {} (pid {}) listening on :{}? Paddock did not start it.",
-                        port.command, port.pid, port.port
+                        "Stop {} (pid {}) on :{}? It is not one of your dev servers.",
+                        listener.command, listener.pid, listener.port
                     ),
                     Request::KillPort {
-                        port: port.port,
-                        pid: port.pid,
+                        port: listener.port,
+                        pid: listener.pid,
                     },
                 ),
             };
-            self.overlay = Some(Overlay::Confirm {
-                message,
-                then: Confirmed::Send(request),
-            });
+            self.overlay = Some(Overlay::Confirm { message, request });
             return;
         }
-        let Some(process) = self.selected_process() else {
+        let Some(server) = self.selected_server() else {
+            self.notify(NoticeKind::Info, "No server selected.");
             return;
         };
-        if !process.state.is_up() && process.state != ProcessState::Stopping {
-            let text = format!("{} is not running.", process.id);
-            self.notify(NoticeKind::Info, text);
-            return;
-        }
-        let pid = process
-            .pid
-            .map(|p| format!(" (pid {p})"))
-            .unwrap_or_default();
-        self.overlay = Some(Overlay::Confirm {
-            message: format!(
-                "Kill {}{pid} right now? It gets no time to clean up.",
-                process.id
-            ),
-            then: Confirmed::Send(Request::Kill(process.id.clone())),
-        });
-    }
-
-    /// A server running outside Paddock can be added or stopped. Other
-    /// process actions explain that it needs adding first; the rest (moving,
-    /// panes, help, settings, quit) fall through. `None` means not handled.
-    fn on_discovered_action(
-        &mut self,
-        action: Action,
-        found: Discovered,
-    ) -> Option<Option<Effect>> {
-        match action {
-            Action::AddProject => Some(Some(Effect::Send(Request::AddProject(found.path)))),
-            Action::Kill => {
-                let port = found.ports.first().copied().unwrap_or_default();
-                self.overlay = Some(Overlay::Confirm {
-                    message: format!(
-                        "Stop {} (pid {}) on :{port}? It was started outside Paddock.",
-                        found.command, found.pid
-                    ),
-                    then: Confirmed::Send(Request::KillPort {
-                        port,
-                        pid: found.pid,
-                    }),
-                });
-                Some(None)
-            }
-            Action::Start
-            | Action::Stop
-            | Action::Restart
-            | Action::ChangePort
-            | Action::MoveProject
-            | Action::Details
-            | Action::RemoveProject => {
-                let add = self.keymap.first(Action::AddProject);
-                self.notify(
-                    NoticeKind::Info,
-                    format!(
-                        "{} is not in Paddock yet. Press {add} to add it.",
-                        found.name
-                    ),
-                );
-                Some(None)
-            }
-            _ => None,
-        }
-    }
-
-    fn open_folder_picker(&mut self) {
-        let start = Some(self.cwd.clone())
-            .filter(|dir| dir.is_dir())
-            .or_else(|| std::env::var_os("HOME").map(PathBuf::from))
-            .unwrap_or_else(|| PathBuf::from("/"));
-        self.overlay = Some(Overlay::Folders(FolderPicker::open(start)));
-    }
-
-    fn request_quit(&mut self) {
-        let running = self
-            .processes()
-            .filter(|p| p.state.is_up() || p.state == ProcessState::Stopping)
-            .count();
-        if !self.stops_on_quit || running == 0 {
-            self.quit = true;
-            return;
-        }
-        let what = if running == 1 {
-            "the running process".to_owned()
+        let label = self.server_label(server.id);
+        let processes = if server.processes == 1 {
+            "its process".to_owned()
         } else {
-            format!("all {running} running processes")
+            format!("its {} processes", server.processes)
         };
-        self.overlay = Some(Overlay::Confirm {
-            message: format!("Quit and stop {what}?"),
-            then: Confirmed::Quit,
-        });
+        let (message, request) = if force {
+            (
+                format!("Kill {label} and {processes} right now? They get no time to clean up."),
+                Request::Kill(server.id),
+            )
+        } else {
+            (
+                format!(
+                    "Stop {label}? Paddock sends SIGTERM to {processes}, then SIGKILL after 5 s."
+                ),
+                Request::Stop(server.id),
+            )
+        };
+        self.overlay = Some(Overlay::Confirm { message, request });
     }
 
-    fn confirm_remove_project(&mut self) {
-        let Some(process) = self.selected_process() else {
-            self.notify(NoticeKind::Info, "There is no project to remove.");
-            return;
-        };
-        let name = process.id.project.clone();
-        self.overlay = Some(Overlay::Confirm {
-            message: format!("Remove {name} from Paddock? Its files stay where they are."),
-            then: Confirmed::Send(Request::RemoveProject(name)),
-        });
-    }
-
-    fn ask_port(&mut self) {
-        let Some(process) = self.selected_process() else {
-            return;
-        };
-        self.overlay = Some(Overlay::Input(Input {
-            title: format!("Port for {}", process.id),
-            value: process.port.map(|p| p.to_string()).unwrap_or_default(),
-            hint: "1 to 65535. A running process restarts on the new port.".into(),
-            error: None,
-            purpose: InputPurpose::Port(process.id.clone()),
-        }));
-    }
-
-    fn pick_project(&mut self) {
-        let Some(process) = self.selected_process() else {
-            return;
-        };
-        let mut items: Vec<String> = self
-            .snapshot
+    /// "verbatim › dev".
+    fn server_label(&self, id: ServerId) -> String {
+        self.snapshot
             .projects
             .iter()
-            .map(|p| p.name.clone())
-            .filter(|name| *name != process.id.project)
-            .collect();
-        items.push(overlay::NEW_PROJECT.into());
-        self.overlay = Some(Overlay::Picker(Picker {
-            title: format!("Move {} to", process.id),
-            items,
-            selected: 0,
-            target: process.id.clone(),
-        }));
+            .find_map(|p| {
+                let server = p.servers.iter().find(|s| s.id == id)?;
+                Some(format!("{} › {}", p.name, server.name))
+            })
+            .unwrap_or_else(|| format!("pid {}", id.pid))
     }
 
     /// The config as it should be saved: current theme and keys.
@@ -716,81 +397,32 @@ impl App {
     fn on_event(&mut self, event: Event) {
         match event {
             Event::Snapshot(snapshot) => {
-                let selected = self.selected_process().map(|p| p.id.clone());
                 self.snapshot = snapshot;
-                if let Some(index) =
-                    selected.and_then(|id| self.processes().position(|p| p.id == id))
-                {
-                    self.selected = index;
+                self.scanned = true;
+                let still_there = self.selected_server().is_some();
+                if !still_there {
+                    self.selected = self.snapshot.servers().next().map(|s| s.id);
                 }
-                self.select(self.selected);
-                self.clamp_port_selection();
-            }
-            Event::State { id, state } => {
-                if let Some(process) = self.process_mut(&id) {
-                    process.state = state;
-                    if !state.is_up() {
-                        process.usage = None;
-                    }
-                }
-            }
-            Event::Output { id, lines } => self.append_output(id, lines),
-            Event::Ports(ports) => {
-                self.snapshot.ports = ports;
-                self.clamp_port_selection();
-            }
-            Event::Usage(usage) => {
-                for (id, usage) in usage {
-                    if let Some(process) = self.process_mut(&id) {
-                        process.usage = Some(usage);
-                    }
-                }
-            }
-            Event::Renamed { from, to } => {
-                if let Some(logs) = self.logs.remove(&from) {
-                    self.logs.insert(to, logs);
-                }
-            }
-            Event::Discovered(found) => {
-                self.snapshot.discovered = found;
-                self.selected = self.selected.min(self.rows().saturating_sub(1));
+                self.selected_port = self
+                    .selected_port
+                    .min(self.snapshot.ports.len().saturating_sub(1));
             }
             Event::Notice(text) => self.notify(NoticeKind::Info, text),
         }
     }
 
-    fn clamp_port_selection(&mut self) {
-        self.selected_port = self
-            .selected_port
-            .min(self.snapshot.ports.len().saturating_sub(1));
+    pub(super) fn is_selected(&self, id: ServerId) -> bool {
+        self.selected == Some(id)
     }
 
-    fn append_output(&mut self, id: ProcessId, lines: Vec<String>) {
-        let added = lines.len();
-        let is_selected = self.selected_process().is_some_and(|p| p.id == id);
-        let buffer = self.logs.entry(id).or_default();
-        buffer.extend(lines);
-        let overflow = buffer.len().saturating_sub(LOG_LIMIT);
-        buffer.drain(..overflow);
-        let len = buffer.len();
-        if !is_selected {
-            return;
-        }
-        // Keep the view still while new lines arrive below it, and keep the
-        // cursor and mark on the same lines when old ones are dropped.
-        if self.scroll > 0 || self.cursor.is_some() {
-            self.scroll = (self.scroll + added).min(len);
-        }
-        self.cursor = self.cursor.map(|c| c.saturating_sub(overflow));
-        self.mark = self.mark.map(|m| m.saturating_sub(overflow));
-    }
-
-    fn process_mut(&mut self, id: &ProcessId) -> Option<&mut ProcessInfo> {
-        self.snapshot
-            .projects
-            .iter_mut()
-            .flat_map(|p| &mut p.processes)
-            .find(|p| &p.id == id)
+    pub(super) fn counts(&self) -> (usize, usize) {
+        let running = self
+            .snapshot
+            .servers()
+            .filter(|s| s.state == ServerState::Running)
+            .count();
+        let stopping = self.snapshot.servers().count() - running;
+        (running, stopping)
     }
 }
 
@@ -821,24 +453,19 @@ impl Widget for &App {
         let [side, main] =
             Layout::horizontal([Constraint::Length(sidebar::WIDTH), Constraint::Fill(1)])
                 .areas(body);
-        let ports_height = (self.snapshot.ports.len() as u16 + 2).clamp(3, 9);
-        let [projects, ports] =
+        let ports_height = (self.snapshot.ports.len() as u16 + 2).clamp(3, 10);
+        let [servers, ports] =
             Layout::vertical([Constraint::Fill(1), Constraint::Length(ports_height)]).areas(side);
 
         status_bar::render_header(self, header, buf);
-        sidebar::render_projects(self, projects, buf);
+        sidebar::render_servers(self, servers, buf);
         sidebar::render_ports(self, ports, buf);
-        match (self.selected_discovered(), self.view) {
-            (Some(found), _) => logs_view::render_discovered(self, found, main, buf),
-            (None, View::Logs) => logs_view::render(self, main, buf),
-            (None, View::Details) => details::render(self, main, buf),
-        }
+        details::render(self, main, buf);
         status_bar::render_footer(self, footer, buf);
 
         match &self.overlay {
             Some(Overlay::Help) => help::render(self, area, buf),
             Some(Overlay::Settings(state)) => settings::render(self, state, area, buf),
-            Some(Overlay::Folders(picker)) => folders::render(self, picker, area, buf),
             Some(dialog) => overlay::render(self, dialog, area, buf),
             None => {}
         }
@@ -853,48 +480,47 @@ pub(crate) mod tests {
     use pretty_assertions::assert_eq;
 
     use super::*;
-    use crate::model::ProjectInfo;
+    use crate::model::{Project, ResourceUsage};
 
-    pub(crate) fn process(project: &str, name: &str, state: ProcessState) -> ProcessInfo {
-        ProcessInfo {
-            id: ProcessId::new(project, name),
-            command: format!("run {name}"),
-            state,
-            port: None,
-            usage: None,
-            cwd: PathBuf::from(format!("/tmp/{project}")),
-            source: "test fixture".into(),
-            pid: state.is_up().then_some(4242),
-            started_at_ms: None,
-            restarts: 0,
+    fn server(pid: u32, name: &str, ports: &[u16]) -> Server {
+        Server {
+            id: id(pid),
+            name: name.into(),
+            command: format!("npm run {name}"),
+            cwd: PathBuf::from("/home/me/shop"),
+            ports: ports.to_vec(),
+            processes: 3,
+            usage: ResourceUsage {
+                cpu_percent: 2.5,
+                memory_bytes: 120 * 1024 * 1024,
+            },
+            state: ServerState::Running,
         }
     }
 
-    pub(crate) fn app() -> App {
-        let mut app = App::new(Config::default(), "test", false);
-        app.theme = Theme::plain();
-        let snapshot = Snapshot {
+    fn snapshot() -> Snapshot {
+        let web = server(100, "dev", &[3000]);
+        Snapshot {
             projects: vec![
-                ProjectInfo {
+                Project {
                     name: "shop".into(),
-                    path: PathBuf::from("/tmp/shop"),
-                    processes: vec![
-                        process("shop", "web", ProcessState::Running),
-                        process("shop", "api", ProcessState::Stopped),
-                    ],
+                    path: PathBuf::from("/home/me/shop"),
+                    kind: "node".into(),
+                    servers: vec![web.clone(), server(200, "api", &[4000])],
                 },
-                ProjectInfo {
+                Project {
                     name: "docs".into(),
-                    path: PathBuf::from("/tmp/docs"),
-                    processes: vec![process("docs", "dev", ProcessState::Crashed(Some(1)))],
+                    path: PathBuf::from("/home/me/docs"),
+                    kind: "folder".into(),
+                    servers: vec![server(300, "http.server", &[8000])],
                 },
             ],
             ports: vec![
                 ListeningPort {
                     port: 3000,
-                    pid: 4242,
+                    pid: 101,
                     command: "node".into(),
-                    owner: Some(ProcessId::new("shop", "web")),
+                    owner: Some(web.id),
                 },
                 ListeningPort {
                     port: 5000,
@@ -903,9 +529,13 @@ pub(crate) mod tests {
                     owner: None,
                 },
             ],
-            discovered: Vec::new(),
-        };
-        app.update(Msg::Backend(Event::Snapshot(snapshot)));
+        }
+    }
+
+    pub(crate) fn app() -> App {
+        let mut app = App::new(Config::default(), "test", false);
+        app.theme = Theme::plain();
+        app.update(Msg::Monitor(Event::Snapshot(snapshot())));
         app
     }
 
@@ -913,77 +543,79 @@ pub(crate) mod tests {
         app.update(Msg::Key(KeyEvent::new(code, KeyModifiers::NONE)))
     }
 
-    fn output(app: &mut App, project: &str, name: &str, count: usize) {
-        let lines = (0..count).map(|i| format!("line {i}")).collect();
-        app.update(Msg::Backend(Event::Output {
-            id: ProcessId::new(project, name),
-            lines,
-        }));
-    }
-
     fn send(request: Request) -> Option<Effect> {
         Some(Effect::Send(request))
+    }
+
+    /// Started "in the future", so uptime shows 0s and snapshots never
+    /// depend on today's date.
+    fn id(pid: u32) -> ServerId {
+        ServerId {
+            pid,
+            started: u64::MAX / 2,
+        }
     }
 
     #[test]
     fn selection_moves_across_projects_and_stops_at_the_ends() {
         let mut app = app();
+        assert_eq!(app.selected_server().map(|s| s.id), Some(id(100)));
         press(&mut app, KeyCode::Up);
-        assert_eq!(app.selected, 0);
+        assert_eq!(app.selected_server().map(|s| s.id), Some(id(100)));
         for _ in 0..5 {
             press(&mut app, KeyCode::Down);
         }
-        assert_eq!(
-            app.selected_process().map(|p| p.id.to_string()),
-            Some("docs/dev".into())
-        );
+        assert_eq!(app.selected_server().map(|s| s.id), Some(id(300)));
     }
 
     #[test]
-    fn start_and_stop_are_sent_only_when_they_make_sense() {
+    fn selection_follows_the_server_when_the_list_changes() {
         let mut app = app();
-        assert_eq!(press(&mut app, KeyCode::Char('s')), None);
-        assert_eq!(
-            app.notice.as_ref().map(|n| n.text.as_str()),
-            Some("shop/web is already running.")
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Char('x')),
-            send(Request::Stop(ProcessId::new("shop", "web")))
-        );
         press(&mut app, KeyCode::Down);
+        let mut changed = snapshot();
+        changed.projects[0].servers.remove(0);
+        app.update(Msg::Monitor(Event::Snapshot(changed)));
+        assert_eq!(app.selected_server().map(|s| s.id), Some(id(200)));
+
+        let mut gone = snapshot();
+        gone.projects[0].servers.retain(|s| s.id != id(200));
+        app.update(Msg::Monitor(Event::Snapshot(gone)));
         assert_eq!(
-            press(&mut app, KeyCode::Char('s')),
-            send(Request::Start(ProcessId::new("shop", "api")))
+            app.selected_server().map(|s| s.id),
+            Some(id(100)),
+            "falls back to the first"
         );
-        assert_eq!(press(&mut app, KeyCode::Char('x')), None);
     }
 
     #[test]
-    fn kill_asks_first() {
+    fn stop_and_kill_ask_first() {
         let mut app = app();
-        assert_eq!(press(&mut app, KeyCode::Char('K')), None);
+        assert_eq!(press(&mut app, KeyCode::Char('x')), None);
         assert!(matches!(app.overlay, Some(Overlay::Confirm { .. })));
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
-            send(Request::Kill(ProcessId::new("shop", "web")))
+            send(Request::Stop(id(100)))
         );
-        assert!(app.overlay.is_none());
 
         press(&mut app, KeyCode::Char('K'));
         assert_eq!(press(&mut app, KeyCode::Char('n')), None);
         assert!(app.overlay.is_none());
+        press(&mut app, KeyCode::Char('K'));
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            send(Request::Kill(id(100)))
+        );
     }
 
     #[test]
-    fn killing_a_foreign_port_targets_its_pid() {
+    fn stopping_a_foreign_port_targets_its_pid() {
         let mut app = app();
         press(&mut app, KeyCode::Tab);
         assert_eq!(app.focus, Focus::Ports);
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Char('K'));
         assert_eq!(
-            press(&mut app, KeyCode::Enter),
+            press(&mut app, KeyCode::Char('y')),
             send(Request::KillPort {
                 port: 5000,
                 pid: 812
@@ -992,158 +624,43 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn enter_on_an_owned_port_jumps_to_its_process() {
+    fn enter_on_an_owned_port_selects_its_server() {
         let mut app = app();
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Tab);
         press(&mut app, KeyCode::Enter);
-        assert_eq!(app.focus, Focus::Processes);
-        assert_eq!(
-            app.selected_process().map(|p| p.id.to_string()),
-            Some("shop/web".into())
-        );
+        assert_eq!(app.focus, Focus::Servers);
+        assert_eq!(app.selected_server().map(|s| s.id), Some(id(100)));
     }
 
     #[test]
-    fn change_port_validates_input() {
+    fn open_and_copy_use_the_selected_port() {
         let mut app = app();
-        press(&mut app, KeyCode::Char('p'));
-        for c in "99999".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
-        assert_eq!(press(&mut app, KeyCode::Enter), None);
-        let Some(Overlay::Input(input)) = &app.overlay else {
-            panic!("input closed on a bad port");
-        };
-        assert!(input.error.is_some());
-
-        for _ in 0..5 {
-            press(&mut app, KeyCode::Backspace);
-        }
-        for c in "3100".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
         assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            send(Request::SetPort {
-                id: ProcessId::new("shop", "web"),
-                port: 3100
-            })
+            press(&mut app, KeyCode::Char('o')),
+            Some(Effect::Open("http://localhost:3000".into()))
         );
-    }
-
-    #[test]
-    fn move_to_an_existing_or_new_project() {
-        let mut app = app();
-        press(&mut app, KeyCode::Char('m'));
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            send(Request::Move {
-                id: ProcessId::new("shop", "web"),
-                project: "docs".into()
-            })
-        );
-
-        press(&mut app, KeyCode::Char('m'));
-        press(&mut app, KeyCode::Down);
-        press(&mut app, KeyCode::Enter);
-        for c in "tools".chars() {
-            press(&mut app, KeyCode::Char(c));
-        }
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            send(Request::Move {
-                id: ProcessId::new("shop", "web"),
-                project: "tools".into()
-            })
-        );
-    }
-
-    #[test]
-    fn copy_a_line_a_range_and_everything() {
-        let mut app = app();
-        app.log_height.set(5);
-        app.update(Msg::Backend(Event::Output {
-            id: ProcessId::new("shop", "web"),
-            lines: vec![
-                "one".into(),
-                "\u{1b}[32mtwo\u{1b}[0m".into(),
-                "three".into(),
-            ],
-        }));
-
-        press(&mut app, KeyCode::Tab);
-        press(&mut app, KeyCode::Tab);
-        assert_eq!(app.focus, Focus::Logs);
-        assert_eq!(app.cursor, Some(2));
         assert_eq!(
             press(&mut app, KeyCode::Char('y')),
             Some(Effect::Copy {
-                text: "three".into(),
-                lines: 1
+                text: "http://localhost:3000".into(),
+                what: "the URL".into()
             })
         );
-
-        press(&mut app, KeyCode::Char('v'));
-        press(&mut app, KeyCode::Up);
-        press(&mut app, KeyCode::Up);
-        assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
-            Some(Effect::Copy {
-                text: "one\ntwo\nthree".into(),
-                lines: 3
-            })
-        );
-
-        press(&mut app, KeyCode::Esc);
-        assert_eq!(app.focus, Focus::Processes);
         assert_eq!(
             press(&mut app, KeyCode::Char('Y')),
             Some(Effect::Copy {
-                text: "one\ntwo\nthree".into(),
-                lines: 3
+                text: "npm run dev".into(),
+                what: "the command".into()
             })
         );
     }
 
     #[test]
-    fn cursor_moves_scroll_the_view() {
+    fn quit_does_not_ask_because_nothing_is_stopped() {
         let mut app = app();
-        app.log_height.set(5);
-        output(&mut app, "shop", "web", 50);
-        press(&mut app, KeyCode::Enter);
-        assert_eq!(app.cursor, Some(49));
-        for _ in 0..10 {
-            press(&mut app, KeyCode::Up);
-        }
-        assert_eq!(app.cursor, Some(39));
-        assert_eq!(app.scroll, 6);
-        press(&mut app, KeyCode::Char('G'));
-        assert_eq!((app.cursor, app.scroll), (Some(49), 0));
-    }
-
-    #[test]
-    fn logs_are_capped_and_the_cursor_follows_its_line() {
-        let mut app = app();
-        output(&mut app, "shop", "web", LOG_LIMIT);
-        press(&mut app, KeyCode::Enter);
-        press(&mut app, KeyCode::Up);
-        assert_eq!(app.cursor, Some(LOG_LIMIT - 2));
-        output(&mut app, "shop", "web", 10);
-        assert_eq!(app.selected_logs().map(VecDeque::len), Some(LOG_LIMIT));
-        assert_eq!(app.cursor, Some(LOG_LIMIT - 12));
-    }
-
-    #[test]
-    fn renamed_processes_keep_their_logs() {
-        let mut app = app();
-        output(&mut app, "shop", "web", 3);
-        let to = ProcessId::new("docs", "web");
-        app.update(Msg::Backend(Event::Renamed {
-            from: ProcessId::new("shop", "web"),
-            to: to.clone(),
-        }));
-        assert_eq!(app.logs.get(&to).map(VecDeque::len), Some(3));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(app.should_quit());
     }
 
     #[test]
@@ -1151,7 +668,6 @@ pub(crate) mod tests {
         let mut app = app();
         press(&mut app, KeyCode::Char(','));
         press(&mut app, KeyCode::Tab);
-        // Keys tab; the first row is "up". Rebind it to w.
         press(&mut app, KeyCode::Enter);
         let effect = press(&mut app, KeyCode::Char('w'));
         let Some(Effect::Save(config)) = effect else {
@@ -1171,7 +687,6 @@ pub(crate) mod tests {
             panic!("expected a save");
         };
         assert_eq!(config.ui.theme, "terminal");
-
         press(&mut app, KeyCode::Down);
         press(&mut app, KeyCode::Esc);
         assert_eq!(
@@ -1192,77 +707,6 @@ pub(crate) mod tests {
             KeyModifiers::CONTROL,
         )));
         assert!(app.should_quit());
-    }
-
-    #[test]
-    fn quitting_asks_first_when_it_would_stop_processes() {
-        let mut app = app().with_backend(true, PathBuf::from("/tmp"));
-        press(&mut app, KeyCode::Char('q'));
-        assert!(!app.should_quit());
-        assert!(matches!(app.overlay, Some(Overlay::Confirm { .. })));
-        press(&mut app, KeyCode::Char('y'));
-        assert!(app.should_quit());
-    }
-
-    #[test]
-    fn discovered_servers_can_be_added_or_stopped() {
-        let mut app = app();
-        app.update(Msg::Backend(Event::Discovered(vec![Discovered {
-            name: "blog".into(),
-            path: PathBuf::from("/home/me/blog"),
-            kind: "node".into(),
-            ports: vec![4322],
-            pid: 9120,
-            command: "node".into(),
-        }])));
-        for _ in 0..3 {
-            press(&mut app, KeyCode::Down);
-        }
-        assert_eq!(
-            app.selected_discovered().map(|d| d.name.as_str()),
-            Some("blog")
-        );
-        assert_eq!(press(&mut app, KeyCode::Char('s')), None);
-        assert!(
-            app.notice
-                .as_ref()
-                .is_some_and(|n| n.text.contains("not in Paddock yet"))
-        );
-        assert_eq!(
-            press(&mut app, KeyCode::Char('a')),
-            send(Request::AddProject(PathBuf::from("/home/me/blog")))
-        );
-        press(&mut app, KeyCode::Char('K'));
-        assert_eq!(
-            press(&mut app, KeyCode::Char('y')),
-            send(Request::KillPort {
-                port: 4322,
-                pid: 9120
-            })
-        );
-    }
-
-    #[test]
-    fn the_folder_picker_starts_in_the_current_folder() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::create_dir(dir.path().join("shop")).unwrap();
-        std::fs::write(dir.path().join("shop/package.json"), "{}").unwrap();
-        let mut app = app().with_backend(true, dir.path().to_owned());
-
-        press(&mut app, KeyCode::Char('a'));
-        assert_eq!(
-            press(&mut app, KeyCode::Enter),
-            send(Request::AddProject(dir.path().to_owned())),
-            "Enter on the first row adds the folder being shown"
-        );
-
-        press(&mut app, KeyCode::Char('a'));
-        press(&mut app, KeyCode::Down);
-        assert_eq!(
-            press(&mut app, KeyCode::Tab),
-            send(Request::AddProject(dir.path().join("shop"))),
-            "Tab adds the selected subfolder"
-        );
     }
 
     #[test]
@@ -1287,34 +731,22 @@ pub(crate) mod tests {
 
     #[test]
     fn renders_the_dashboard() {
-        let mut app = app();
-        output(&mut app, "shop", "web", 30);
-        app.update(Msg::Backend(Event::Output {
-            id: ProcessId::new("shop", "web"),
-            lines: vec!["Error: something broke".into()],
-        }));
-        insta::assert_snapshot!(render(&app, 100, 22));
+        insta::assert_snapshot!(render(&app(), 100, 24));
     }
 
     #[test]
-    fn renders_details() {
-        let mut app = app();
-        press(&mut app, KeyCode::Char('i'));
-        insta::assert_snapshot!(render(&app, 100, 22));
+    fn renders_the_empty_state() {
+        let mut app = App::new(Config::default(), "test", false);
+        app.theme = Theme::plain();
+        app.update(Msg::Monitor(Event::Snapshot(Snapshot::default())));
+        insta::assert_snapshot!(render(&app, 100, 24));
     }
 
     #[test]
     fn renders_help() {
         let mut app = app();
         press(&mut app, KeyCode::Char('?'));
-        insta::assert_snapshot!(render(&app, 100, 36));
-    }
-
-    #[test]
-    fn renders_settings() {
-        let mut app = app();
-        press(&mut app, KeyCode::Char(','));
-        insta::assert_snapshot!(render(&app, 100, 24));
+        insta::assert_snapshot!(render(&app, 100, 30));
     }
 
     #[test]

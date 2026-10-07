@@ -1,8 +1,8 @@
 //! Which pid listens on which TCP port.
 //!
 //! Runs `lsof -nP -iTCP -sTCP:LISTEN -F pcn` (no shell, fixed arguments) and
-//! parses its field output. Matching listeners to supervised processes is
-//! the supervisor's job, using the process tree from `stats`.
+//! parses its field output. Matching listeners to servers is the job of
+//! `servers`, using the process tree from `stats`.
 //!
 //! Observes only: Paddock never opens, connects to or binds a socket here.
 //! Native APIs (libproc on macOS, /proc on Linux) may replace lsof later

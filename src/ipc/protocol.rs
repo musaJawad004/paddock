@@ -1,71 +1,30 @@
-//! Message types between the TUI and whatever owns the processes (the demo
-//! backend today, the daemon from v0.1 on). Serialized as JSON lines once a
-//! socket carries them in v0.2.
-//!
-//! `Output` lines are raw terminal text and may contain ANSI escape codes;
-//! the TUI interprets them.
-//!
-//! Still to come: Hello { version }, project add and remove, StartAll and
-//! StopAll, Resize, SendInput for attach mode, Shutdown.
+//! Message types between the TUI and whatever watches the servers (the
+//! monitor, or the demo). Serialized as JSON lines once a socket carries
+//! them.
 
 use serde::{Deserialize, Serialize};
 
-use crate::model::{Discovered, ListeningPort, ProcessId, ProcessState, ResourceUsage, Snapshot};
+use crate::model::{ServerId, Snapshot};
 
-pub const PROTOCOL_VERSION: u32 = 4;
+pub const PROTOCOL_VERSION: u32 = 5;
 
-/// TUI to backend.
+/// TUI to monitor. Every request acts on something already running; the
+/// TUI confirms with the user first.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Request {
-    Start(ProcessId),
-    Stop(ProcessId),
-    Restart(ProcessId),
-    /// SIGKILL the process group without the graceful SIGTERM first.
-    Kill(ProcessId),
-    /// Change the port a process should use. Restarts it if it is running.
-    SetPort {
-        id: ProcessId,
-        port: u16,
-    },
-    /// Move a process to another project, creating the project if needed.
-    Move {
-        id: ProcessId,
-        project: String,
-    },
-    /// Kill a listener Paddock did not start. The TUI asks the user first.
-    KillPort {
-        port: u16,
-        pid: u32,
-    },
-    /// Add a project folder to config.toml and detect what it runs.
-    AddProject(std::path::PathBuf),
-    /// Remove a project (by its shown name) from config.toml.
-    RemoveProject(String),
+    /// SIGTERM to every process in the server's tree, SIGKILL after 5 s.
+    Stop(ServerId),
+    /// SIGKILL to every process in the tree, now.
+    Kill(ServerId),
+    /// Stop a listener that is not one of the user's servers.
+    KillPort { port: u16, pid: u32 },
 }
 
-/// Backend to TUI.
+/// Monitor to TUI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Event {
-    /// Full state. Sent on connect and after changes that reshape the tree.
+    /// Full state after every scan, about every two seconds.
     Snapshot(Snapshot),
-    State {
-        id: ProcessId,
-        state: ProcessState,
-    },
-    Output {
-        id: ProcessId,
-        lines: Vec<String>,
-    },
-    Ports(Vec<ListeningPort>),
-    /// Latest CPU and memory for every running process, about once a second.
-    Usage(Vec<(ProcessId, ResourceUsage)>),
-    /// A process got a new id after `Move`; logs and selection follow it.
-    Renamed {
-        from: ProcessId,
-        to: ProcessId,
-    },
-    /// Dev servers running outside Paddock in folders it does not know yet.
-    Discovered(Vec<Discovered>),
-    /// Something the user should read, e.g. why a request was refused.
+    /// Something the user should read, e.g. the result of a stop.
     Notice(String),
 }

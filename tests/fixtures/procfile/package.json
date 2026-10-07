@@ -1,1 +1,0 @@
-{ "name": "procfile", "scripts": { "dev": "vite" } }

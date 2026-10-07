@@ -23,7 +23,7 @@ const TAGLINE_AT: Duration = Duration::from_millis(1500);
 const BLINK_AT: Duration = Duration::from_millis(2200);
 const BLINK: Duration = Duration::from_millis(140);
 
-const TAGLINE: &str = "A terminal workspace for your dev servers";
+const TAGLINE: &str = "Every dev server on this machine, in one place";
 
 pub fn render(theme: Theme, elapsed: Duration, area: Rect, buf: &mut Buffer) {
     let full = area.width >= LOGO_WIDTH + 4 && area.height >= 20;

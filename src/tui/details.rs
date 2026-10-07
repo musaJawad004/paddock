@@ -1,6 +1,10 @@
-//! Main pane, details view (`i`): everything known about the selected
-//! process and its project. Where it runs, since when, with which pid and
-//! port, where the command came from, and what it costs.
+//! Main pane: everything Paddock can see about the selected server. Where
+//! it runs, since when, which processes and ports, what it costs, and the
+//! keys to act on it. Before the first scan it says it is looking; with no
+//! servers it shows Paddy and how servers get here.
+//!
+//! There are no logs: a server's output goes only to the terminal that
+//! started it, and no other program can read it.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
@@ -8,32 +12,25 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Paragraph, Widget, Wrap};
 
 use super::app::App;
-use super::theme::Theme;
-use super::{fit, tilde};
-use crate::model::{self, ProcessState};
+use super::keys::Action;
+use super::sidebar::format_memory;
+use super::{brand, fit, tilde};
+use crate::model::{ServerState, now_ms};
 
-const LABEL_WIDTH: usize = 11;
+const LABEL_WIDTH: usize = 10;
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
-    let block = Block::bordered()
-        .title(Span::styled(" Details ", theme.title()))
-        .border_style(theme.border());
-    let Some(process) = app.selected_process() else {
-        Paragraph::new("No projects yet.")
-            .style(theme.dim())
-            .block(block)
-            .render(area, buf);
+    let block = Block::bordered().border_style(theme.border());
+    let Some(server) = app.selected_server() else {
+        render_empty(app, block, area, buf);
         return;
     };
-    let Some(project) = app
+    let project = app
         .snapshot
         .projects
         .iter()
-        .find(|p| p.name == process.id.project)
-    else {
-        return;
-    };
+        .find(|p| p.servers.iter().any(|s| s.id == server.id));
 
     let row = |label: &str, value: Span<'static>| {
         Line::from(vec![
@@ -43,85 +40,126 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     };
     let text = |value: String| Span::styled(value, theme.text());
 
-    let up = project.processes.iter().filter(|p| p.state.is_up()).count();
-    let ports: Vec<String> = app
-        .snapshot
+    let (state, state_style) = match server.state {
+        ServerState::Running => {
+            let seconds = (now_ms() / 1000).saturating_sub(server.id.started);
+            (
+                format!("● running for {}", duration(seconds)),
+                theme.success(),
+            )
+        }
+        ServerState::Stopping => ("◐ stopping".to_owned(), theme.warning()),
+    };
+    let urls: Vec<String> = server
         .ports
         .iter()
-        .filter(|p| p.owner.as_ref().is_some_and(|o| o.project == project.name))
-        .map(|p| format!(":{}", p.port))
+        .map(|p| format!("http://localhost:{p}"))
         .collect();
+    let processes = if server.processes == 1 {
+        "1 (just this one)".to_owned()
+    } else {
+        format!(
+            "{} (this one and {} below it)",
+            server.processes,
+            server.processes - 1
+        )
+    };
 
     let mut lines = vec![
-        Line::styled(" PROJECT", theme.accent()),
-        row("Name", text(project.name.clone())),
-        row("Folder", text(tilde(&project.path))),
-        row(
-            "Processes",
-            text(format!("{} ({up} running)", project.processes.len())),
-        ),
-        row(
-            "Ports",
-            text(if ports.is_empty() {
-                "none open".into()
-            } else {
-                ports.join("  ")
-            }),
-        ),
+        Line::from(vec![
+            Span::styled(
+                format!(" {}", project.map_or("", |p| p.name.as_str())),
+                theme.accent(),
+            ),
+            Span::styled(" › ", theme.dim()),
+            Span::styled(server.name.clone(), theme.title()),
+        ]),
         Line::raw(""),
-        Line::styled(" PROCESS", theme.accent()),
-        row("Name", text(process.id.name.clone())),
-        row(
-            "State",
-            state_span(app, process.state, process.started_at_ms),
-        ),
-        row(
-            "PID",
-            text(process.pid.map_or("not running".into(), |p| p.to_string())),
-        ),
+        row("State", Span::styled(state, state_style)),
+        row("URL", Span::styled(urls.join("  "), theme.info())),
+        row("Command", text(short_command(&server.command))),
+        row("Folder", text(tilde(&server.cwd))),
     ];
-
-    let port = match process.port {
-        Some(port) if process.state == ProcessState::Running => {
-            Span::styled(format!(":{port}   http://localhost:{port}"), theme.info())
-        }
-        Some(port) => text(format!(":{port} (when running)")),
-        None => text("none".into()),
-    };
-    lines.push(row("Port", port));
-    lines.push(row("Command", text(process.command.clone())));
-    lines.push(row("Runs in", text(tilde(&process.cwd))));
-    lines.push(row("From", text(process.source.clone())));
-    lines.push(row("Restarts", text(process.restarts.to_string())));
-    if let Some(usage) = process.usage {
-        lines.push(row("CPU", text(format!("{:.1}%", usage.cpu_percent))));
+    if let Some(project) = project.filter(|p| p.path != server.cwd) {
         lines.push(row(
-            "Memory",
-            text(format!("{} MB", usage.memory_bytes / (1024 * 1024))),
+            "Project",
+            text(format!("{} ({})", tilde(&project.path), project.kind)),
         ));
     }
-    lines.push(Line::raw(""));
-    lines.push(Line::from(vec![
-        Span::styled(" ", theme.dim()),
-        Span::styled(app.keymap.first(super::keys::Action::Details), theme.key()),
-        Span::styled(" back to logs", theme.dim()),
-    ]));
+    lines.extend([
+        row("PID", text(server.id.pid.to_string())),
+        row("Processes", text(processes)),
+        row("CPU", text(format!("{:.1}%", server.usage.cpu_percent))),
+        row("Memory", text(format_memory(server.usage.memory_bytes))),
+        Line::raw(""),
+        keys_line(app),
+        Line::raw(""),
+        Line::styled(
+            " Its logs stay in the terminal that started it.",
+            theme.dim(),
+        ),
+    ]);
 
     Paragraph::new(lines)
         .wrap(Wrap { trim: false })
-        .block(block)
+        .block(block.title(Span::styled(" Server ", theme.title())))
         .render(area, buf);
 }
 
-fn state_span(app: &App, state: ProcessState, started_at_ms: Option<u64>) -> Span<'static> {
-    let mut label = format!("{} {}", Theme::glyph(state), state.label());
-    if state == ProcessState::Running
-        && let Some(started) = started_at_ms
-    {
-        let seconds = model::now_ms().saturating_sub(started) / 1000;
-        label.push_str(&format!(" for {}", duration(seconds)));
+fn keys_line(app: &App) -> Line<'static> {
+    let theme = app.theme;
+    let mut spans = vec![Span::raw(" ")];
+    for (action, label) in [
+        (Action::Open, "open"),
+        (Action::CopyUrl, "copy URL"),
+        (Action::CopyCommand, "copy command"),
+        (Action::Stop, "stop"),
+        (Action::Kill, "kill"),
+    ] {
+        let key = app.keymap.first(action);
+        if key.is_empty() {
+            continue;
+        }
+        spans.push(Span::styled(key, theme.key()));
+        spans.push(Span::styled(format!(" {label}   "), theme.dim()));
     }
-    Span::styled(label, app.theme.state(state))
+    Line::from(spans)
+}
+
+fn render_empty(app: &App, block: Block, area: Rect, buf: &mut Buffer) {
+    let theme = app.theme;
+    let mut lines = vec![Line::raw("")];
+    lines.extend(brand::paddy(theme, false).into_iter().map(|l| l.centered()));
+    lines.push(Line::raw(""));
+    if !app.scanned {
+        lines.push(Line::styled("Looking for dev servers...", theme.dim()).centered());
+    } else {
+        lines.extend([
+            Line::styled("No dev servers running", theme.title()).centered(),
+            Line::raw(""),
+            Line::styled(
+                "Start one in any terminal (npm run dev, cargo run...)",
+                theme.dim(),
+            )
+            .centered(),
+            Line::styled("and it shows up here within two seconds.", theme.dim()).centered(),
+        ]);
+    }
+    Paragraph::new(lines).block(block).render(area, buf);
+}
+
+/// Long paths shortened to their last part, so the command fits on a line:
+/// `node /opt/homebrew/.../yarn.js run dev` becomes `node …/yarn.js run dev`.
+/// Copying the command still copies it in full.
+fn short_command(command: &str) -> String {
+    command
+        .split(' ')
+        .map(|word| match word.rsplit_once('/') {
+            Some((_, last)) if word.len() > 24 && !last.is_empty() => format!("…/{last}"),
+            _ => word.to_owned(),
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn duration(seconds: u64) -> String {
@@ -134,7 +172,17 @@ fn duration(seconds: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::duration;
+    use super::{duration, short_command};
+
+    #[test]
+    fn long_paths_in_commands_are_shortened() {
+        assert_eq!(
+            short_command("node /opt/homebrew/Cellar/yarn/1.22.22/libexec/bin/yarn.js run dev"),
+            "node …/yarn.js run dev"
+        );
+        assert_eq!(short_command("npm run dev"), "npm run dev");
+        assert_eq!(short_command("node ./server.js"), "node ./server.js");
+    }
 
     #[test]
     fn durations_read_naturally() {

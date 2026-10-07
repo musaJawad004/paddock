@@ -20,7 +20,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         .iter()
         .map(|a| (app.keymap.describe(*a), a.description()))
         .collect();
-    entries.push(("enter".into(), "open logs / confirm"));
+    entries.push(("enter".into(), "go to server / confirm"));
     entries.push(("esc".into(), "back / cancel"));
     entries.push(("ctrl+c".into(), "quit, always"));
 
@@ -35,7 +35,10 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         Line::from(vec![
             Span::styled(" paddock ", theme.accent()),
             Span::styled(format!("v{}  ", env!("CARGO_PKG_VERSION")), theme.dim()),
-            Span::styled("A terminal workspace for your dev servers", theme.dim()),
+            Span::styled(
+                "Every dev server on this machine, in one place",
+                theme.dim(),
+            ),
         ]),
         Line::raw(""),
     ];
@@ -51,7 +54,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     lines.push(Line::raw(""));
     lines.push(Line::styled(
         format!(
-            " Data: {}. Yellow ports were not started by Paddock.",
+            " Data: {}. Yellow ports belong to other programs.",
             app.source
         ),
         theme.dim(),

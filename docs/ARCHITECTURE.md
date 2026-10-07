@@ -1,40 +1,31 @@
 # Paddock architecture
 
-Paddock is a terminal workspace for your dev servers. It finds your
-projects, works out how to run them, starts and stops their processes, shows
-live logs, and tells you which project owns which port.
+Paddock is a terminal dashboard for the dev servers running on one machine.
+It finds them, groups them by project, shows what they are, and stops them
+when the user confirms. It never starts anything.
 
 ## Goals
 
-- Zero config for common projects. Detection first, `paddock.toml` only when
-  detection is not enough.
-- Servers keep running after you close the dashboard, like a terminal
-  multiplexer. Reopen Paddock and everything is still there.
+- Zero setup. Servers appear because they are running, not because they
+  were registered.
+- Never surprise the user. Nothing is started; nothing is stopped without a
+  confirmation; a shell, editor, terminal or agent is never part of a
+  server.
 - Local only. No network code, no telemetry, no account.
-- macOS first, Linux second. Windows is out of scope until v1.
+- macOS first, Linux where `lsof` exists.
 
-## Processes and parts
+## Parts
 
 ```
-  paddock (TUI)  ── Unix socket ──▶  paddock daemon (background)
-   draws the screen                    ├─ Supervisor: start, stop, restart, crash detection
-   sends user actions                  ├─ One PTY per child process
-   receives events                     ├─ LogBuffer per process (bounded ring)
-                                       ├─ Ports: which pid owns which port
-                                       ├─ Stats: CPU and RAM per project
-                                       └─ Detect: reads projects, finds run commands
+  paddock (TUI)  ── ipc channel ──▶  monitor (task in the same process)
+   draws the screen                    ├─ ports: lsof -> (port, pid, command)
+   sends confirmed actions             ├─ stats: sysinfo process table
+   receives a Snapshot every 2 s       ├─ servers: group listeners into projects and servers
+                                       └─ actions: re-check, then signal
 ```
 
-- `paddock` with no arguments opens the TUI. If no daemon is running, it
-  starts one (same binary, `paddock daemon`) and connects to it.
-- The daemon owns every child process. The TUI holds no process handles, so
-  quitting or crashing the TUI never kills a server.
-- `paddock down` stops all processes and the daemon.
-
-v0.1 runs the supervisor inside the TUI process (no daemon) to get a working
-tool quickly. The TUI already talks to the supervisor only through `ipc`
-messages over a channel, so v0.2 swaps the channel for a Unix socket without
-touching the TUI.
+The TUI and the monitor only exchange `ipc` messages, so the monitor could
+later move into a background process without touching the TUI.
 
 ## Source layout
 
@@ -42,190 +33,131 @@ touching the TUI.
 Cargo.toml            dependencies, lints, release profile
 deny.toml             dependency policy (advisories, licenses, banned crates)
 src/
-  main.rs             binary entry: error reporting, logging, then cli
+  main.rs             binary entry: error reporting, then cli
   lib.rs              module list and the dependency rules below
-  cli.rs              clap commands: paddock, add, remove, list, up, down, daemon
-  model.rs            shared types: Project, ProcessSpec, ProcessState, ListeningPort
-  config.rs           global config and paddock.toml
-  demo.rs             fake backend speaking ipc, until the daemon runs real projects
-  detect/             read-only project detection
-    mod.rs              runs every detector and merges results
-    node.rs             package.json, package manager, workspaces
-    rust.rs             Cargo.toml binaries and workspace members
-    compose.rs          compose services
-    procfile.rs         Procfile and Makefile targets
-  daemon/             owns child processes (in-process in v0.1)
-    mod.rs
-    supervisor.rs       lifecycle state machine, restart policy
-    pty.rs              spawn in a PTY, own process group
-    logs.rs             vt100 screen plus bounded scrollback
-    ports.rs            listening ports to pids to processes
-    stats.rs            CPU and memory
-  ipc/                the only link between tui and daemon
-    mod.rs
-    protocol.rs         Request and Event, JSON lines, PROTOCOL_VERSION
-    transport.rs        channel in v0.1, Unix socket in v0.2
+  cli.rs              paddock, paddock list, --demo, --theme, --no-splash
+  model.rs            Snapshot, Project, Server, ServerId, ListeningPort
+  config.rs           ~/.config/paddock/config.toml (theme, keys, splash)
+  project.rs          which folder is a project, from its files
+  demo.rs             made-up servers for --demo
+  monitor/
+    mod.rs            scan loop, request handling, SIGKILL after 5 s
+    ports.rs          lsof field output parser
+    stats.rs          sysinfo process table (parents, cwd, cmd, owner, usage)
+    servers.rs        listeners + process table -> projects and servers (pure)
+    actions.rs        the only code that sends signals
+  ipc/                Request and Event, in-process channel transport
   tui/
-    mod.rs              event loop; runs copy and save off the UI thread
-    app.rs              state, update, effects, layout
-    keys.rs             actions, default keys, config overrides, rebinding
-    theme.rs            8 palettes, 256-colour fallback, NO_COLOR
-    ansi.rs             ANSI colours and \r redraws in process output
-    sidebar.rs          projects, processes, ports
-    logs_view.rs        log pane, cursor, selection, scrollbar
-    details.rs          project and process details
-    overlay.rs          confirm, input and picker popups
-    folders.rs          folder picker for adding projects
-    settings.rs         theme, keys and splash settings, saved at once
-    help.rs             the ? popup, built from the keymap
-    splash.rs           start-up animation
-    brand.rs            logo and Paddy the pony
-    clipboard.rs        pbcopy, wl-copy, xclip, xsel, OSC 52 fallback
-    palette.rs          quick jump (to come)
-    status_bar.rs       header counts, footer hints, notices
+    mod.rs            event loop; copy, open and save run off the UI thread
+    app.rs            state, update, effects, layout
+    keys.rs           actions, default keys, config overrides, rebinding
+    theme.rs          8 palettes, 256-colour fallback, NO_COLOR
+    sidebar.rs        projects and servers, ports
+    details.rs        the selected server, empty state
+    overlay.rs        help, settings and confirmation popups
+    settings.rs       theme, keys and splash settings, saved at once
+    help.rs           the ? popup, built from the keymap
+    splash.rs         start-up animation
+    brand.rs          logo and Paddy the pony
+    clipboard.rs      pbcopy, wl-copy, xclip, xsel, OSC 52 fallback
+    status_bar.rs     header counts, footer hints, notices
 tests/
-  fixtures/           fake projects for the detectors (read, never run)
+  monitor.rs          real processes started by the test, found and stopped
 ```
-
-Every module starts with a `//!` contract: what it owns, what it must not
-do. Read it before changing the module.
 
 Dependency rules:
 
 ```
 cli ──▶ tui ─────┐   (tui also reads and writes config)
   ├───▶ demo ────┤
-  └───▶ daemon ──┼──▶ ipc ──▶ model
-         └──▶ detect ───────▶ model
-config ─────────────────────▶ model
+  └───▶ monitor ─┼──▶ ipc ──▶ model
+         └──▶ project
 ```
 
-`tui` and `daemon` never import each other. `detect` never runs anything.
+`tui` and `monitor` never import each other.
 
-## Data flow
+## Finding servers
 
-1. Startup: load `~/.config/paddock/config.toml` (list of project folders).
-   For each folder, merge `paddock.toml` (if present) over detected
-   commands to get `Vec<ProcessSpec>`.
-2. User presses `s` on a process: TUI sends `Request::Start { id }`.
-3. Supervisor spawns the command via `$SHELL -lc` in a PTY, in its own process
-   group, and emits `Event::State { id, Starting }`.
-4. PTY output is read on a task, appended to the `LogBuffer`, and forwarded as
-   `Event::Output { id, bytes }`, batched to at most 30 events a second.
-5. The port scanner runs every 2 s, maps listening ports to pids, walks the
-   process tree up to a supervised child, and emits `Event::Ports(...)`.
-6. On exit, the supervisor records the code. Non-zero becomes `Crashed`, and
-   a restart with backoff (1 s, 2 s, 4 s, max 30 s) follows if the spec has
-   `restart = "on-failure"`.
+Every scan:
 
-## Discovery
+1. `lsof -nP -iTCP -sTCP:LISTEN -F pcn` lists listeners.
+2. A listener is a dev server when its process belongs to the user and its
+   working folder is below the home folder.
+3. Its project is the outermost folder with a project file around that
+   working folder (`project::root`), or the folder itself.
+4. The server is found by walking up the parents while they run in that
+   project and are dev runners: package managers, `sh -c` and script
+   shells, interpreters (`node`, `python`...) unless they run a coding
+   agent, cargo, make and similar. An interactive shell, an editor, a
+   terminal or an agent ends the walk. The highest process reached is the
+   top of the server; its pid and start time are the `ServerId`.
+5. Listeners of the same tree merge into one server with several ports.
+6. Other listeners on ports 1024 to 9999 are shown as foreign ports.
 
-Every port scan also looks at listeners Paddock did not start. If the
-process belongs to the user and runs in a folder below the home folder,
-Paddock walks up to the outermost folder with a project file (package.json,
-Cargo.toml, compose, Procfile, paddock.toml, go.mod, pyproject.toml,
-Gemfile). Folders not in Paddock yet are sent as `Discovered`; system apps
-run from `/` and never match. Paddock cannot adopt a process it did not
-start (its output is not ours to read), so adding such a project offers to
-stop the outside copy and start it here.
+`servers::collect` is pure: it reads everything through the `ProcessTable`
+trait, so the rules above are unit tested with made-up tables.
 
-## Process states
+## Stopping
 
-```
-Stopped ─start─▶ Starting ─output or port seen─▶ Running
-Running ─exit 0─▶ Exited
-Running ─exit ≠ 0 or signal─▶ Crashed ─(restart policy)─▶ Starting
-any ─stop─▶ Stopping ─group gone─▶ Stopped
-```
+- Stop: SIGTERM to every process in the tree, children first. If the server
+  is still there five seconds later, SIGKILL.
+- Kill: SIGKILL to every process in the tree.
+- Free a foreign port: SIGTERM to that pid after a fresh `lsof` shows it
+  still holds the port.
 
-Stop sends SIGTERM to the process group, waits 5 s, then SIGKILL.
+Before any signal, `actions` refreshes the process table and checks that the
+pid still has the start time the user saw, so a reused pid is never hit.
+Paddock itself and every process above it are never signalled, nor is
+pid 1.
 
 ## Configuration
 
-Global, `~/.config/paddock/config.toml`:
-
 ```toml
-projects = ["~/Projects/lumo", "~/Projects/heron"]
-scrollback = 10000
-```
+[ui]
+theme = "paddock"
+splash = true
 
-Overrides made in the TUI (port, project) are saved in the same file:
-
-```toml
-[processes."/Users/me/Projects/shop#web"]
-port = 3100
-group = "frontends"
-```
-
-Per project, `paddock.toml` (optional):
-
-```toml
-[process.app]
-cmd = "yarn expo start"
-port = 8081
-
-[process.api]
-cmd = "yarn dev"
-cwd = "server"
-depends_on = ["db"]
-restart = "on-failure"
-
-[process.db]
-cmd = "docker compose up postgres"
+[keys]
+stop = "x"
 ```
 
 ## Stack
 
 | Concern | Choice |
 |---|---|
-| TUI | ratatui 0.30 (crossterm backend, re-exported) |
+| TUI | ratatui 0.30 (crossterm backend) |
 | Async | tokio |
-| Child processes | portable-pty |
-| Terminal output | vt100 |
-| CPU and RAM | sysinfo |
-| Ports | parse `lsof -nP -iTCP -sTCP:LISTEN` first, native APIs later |
+| Process table, CPU, memory | sysinfo |
+| Ports | `lsof` field output |
+| Signals | nix |
 | Config | serde, toml |
 | CLI | clap (derive) |
-| Signals | nix (same version as portable-pty) |
-| Logging | tracing, written to a file because the TUI owns the terminal |
 | Errors | thiserror in modules, color-eyre in main |
-| Release | cargo-dist: GitHub Releases and a Homebrew tap |
 
-Exact versions are in `Cargo.toml`. Every dependency must pass `deny.toml`.
+Every dependency must pass `deny.toml`.
 
 ## Decisions
 
-Short records of choices that are expensive to reverse.
-
-1. **Library plus thin binary.** All logic lives in `src/lib.rs` modules so
-   integration tests in `tests/` can use it. `main.rs` only wires errors,
-   logging and the CLI.
-2. **Supervisor in-process first, daemon second.** v0.1 ships faster with
-   one process. Because `tui` and `daemon` already talk only through `ipc`,
-   v0.2 changes the transport, not the TUI.
-3. **PTY per child (portable-pty), not plain pipes.** Dev servers detect a
-   terminal and change behaviour without one: no colours, no QR code,
-   different buffering. A PTY also puts the child in its own session, which
-   gives us the process group we need to stop the whole tree.
-4. **`lsof` for ports in v0.1.** It is on every Mac and most Linux machines
-   and gives pid and port in one call. Native APIs can replace it later
-   behind `daemon::ports` without changing callers.
-5. **No `dirs` crate.** Config goes to `$XDG_CONFIG_HOME/paddock` or
-   `~/.config/paddock` on both platforms. This also kept an MPL-2.0
-   dependency out of the tree.
+1. **Watch, never start.** An earlier version started projects itself and
+   ended up running a second copy of a server that was already up on
+   another port. Starting is the user's job, in their own terminal.
+2. **No logs.** A server's output belongs to the terminal that started it;
+   macOS gives no other program a way to read it without root tracing.
+   Paddock shows everything else.
+3. **A server is a process tree, bounded by runners.** Walking up through
+   known dev runners only (and never into agents, editors or interactive
+   shells) makes "stop this server" mean what the user expects.
+4. **`ServerId` is pid plus start time.** Pids are reused; the pair is not.
+5. **`lsof` for ports.** It is on every Mac and gives pid and port in one
+   call. Native APIs can replace it behind `monitor::ports`.
 6. **No network code, enforced.** `deny.toml` bans HTTP and TLS crates; the
-   supply chain scan rejects TCP and UDP APIs in `src/`. The daemon in v0.2
-   uses a Unix socket only.
-7. **`unsafe_code = "deny"`.** Process-group setup is done by portable-pty;
-   Paddock itself should not need unsafe. An exception needs a comment
-   explaining why and a review.
+   supply chain scan rejects TCP and UDP APIs in `src/`.
+7. **`unsafe_code = "deny"`.** Nothing here needs it.
 
 ## Roadmap
 
 | Version | Scope |
 |---|---|
-| v0.1 (done) | Add folders, detect commands, start, stop, kill, restart, live logs, ports, CPU and memory, port and project overrides. Supervisor in-process. |
-| v0.2 | Daemon over a Unix socket. Close and reopen without stopping servers. |
-| v0.3 | Ports panel, kill strays with confirmation, open in browser, CPU and RAM. |
-| v0.4 | Start all with `depends_on`, log search, crash notifications, Expo QR in the log pane. |
+| v0.1 | Find, group and show running servers; open, copy, stop, kill, free ports; themes, keys, splash. |
+| v0.2 | Port history (what was on :3000 earlier), notifications when a server stops on its own. |
 | v1.0 | Homebrew release, demo GIF, website. |

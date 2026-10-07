@@ -28,47 +28,27 @@ pub enum Action {
     Down,
     NextPane,
     PrevPane,
-    Start,
     Stop,
-    Restart,
     Kill,
-    ChangePort,
-    MoveProject,
-    Details,
-    Mark,
-    Copy,
-    CopyAll,
-    ScrollUp,
-    ScrollDown,
-    Follow,
-    AddProject,
-    RemoveProject,
+    Open,
+    CopyUrl,
+    CopyCommand,
     Settings,
     Help,
     Quit,
 }
 
 impl Action {
-    pub const ALL: [Action; 22] = [
+    pub const ALL: [Action; 12] = [
         Action::Up,
         Action::Down,
         Action::NextPane,
         Action::PrevPane,
-        Action::Start,
         Action::Stop,
-        Action::Restart,
         Action::Kill,
-        Action::ChangePort,
-        Action::MoveProject,
-        Action::Details,
-        Action::Mark,
-        Action::Copy,
-        Action::CopyAll,
-        Action::ScrollUp,
-        Action::ScrollDown,
-        Action::Follow,
-        Action::AddProject,
-        Action::RemoveProject,
+        Action::Open,
+        Action::CopyUrl,
+        Action::CopyCommand,
         Action::Settings,
         Action::Help,
         Action::Quit,
@@ -81,21 +61,11 @@ impl Action {
             Action::Down => "down",
             Action::NextPane => "next_pane",
             Action::PrevPane => "prev_pane",
-            Action::Start => "start",
             Action::Stop => "stop",
-            Action::Restart => "restart",
             Action::Kill => "kill",
-            Action::ChangePort => "change_port",
-            Action::MoveProject => "move_project",
-            Action::Details => "details",
-            Action::Mark => "mark",
-            Action::Copy => "copy",
-            Action::CopyAll => "copy_all",
-            Action::ScrollUp => "scroll_up",
-            Action::ScrollDown => "scroll_down",
-            Action::Follow => "follow",
-            Action::AddProject => "add_project",
-            Action::RemoveProject => "remove_project",
+            Action::Open => "open",
+            Action::CopyUrl => "copy_url",
+            Action::CopyCommand => "copy_command",
             Action::Settings => "settings",
             Action::Help => "help",
             Action::Quit => "quit",
@@ -108,21 +78,11 @@ impl Action {
             Action::Down => "move down",
             Action::NextPane => "next pane",
             Action::PrevPane => "previous pane",
-            Action::Start => "start process",
-            Action::Stop => "stop process",
-            Action::Restart => "restart process",
-            Action::Kill => "kill now (or port owner)",
-            Action::ChangePort => "change port",
-            Action::MoveProject => "move to another project",
-            Action::Details => "toggle details",
-            Action::Mark => "select lines",
-            Action::Copy => "copy line or selection",
-            Action::CopyAll => "copy all logs",
-            Action::ScrollUp => "page up",
-            Action::ScrollDown => "page down",
-            Action::Follow => "jump to newest line",
-            Action::AddProject => "add a project folder",
-            Action::RemoveProject => "remove project from list",
+            Action::Stop => "stop the server",
+            Action::Kill => "kill it now (or the port)",
+            Action::Open => "open in the browser",
+            Action::CopyUrl => "copy its URL",
+            Action::CopyCommand => "copy its command",
             Action::Settings => "settings",
             Action::Help => "help",
             Action::Quit => "quit",
@@ -135,21 +95,11 @@ impl Action {
             Action::Down => &["down", "j"],
             Action::NextPane => &["tab"],
             Action::PrevPane => &["backtab"],
-            Action::Start => &["s"],
             Action::Stop => &["x"],
-            Action::Restart => &["r"],
             Action::Kill => &["K"],
-            Action::ChangePort => &["p"],
-            Action::MoveProject => &["m"],
-            Action::Details => &["i"],
-            Action::Mark => &["v"],
-            Action::Copy => &["y"],
-            Action::CopyAll => &["Y"],
-            Action::ScrollUp => &["pgup", "u"],
-            Action::ScrollDown => &["pgdn", "d"],
-            Action::Follow => &["end", "G"],
-            Action::AddProject => &["a"],
-            Action::RemoveProject => &["D"],
+            Action::Open => &["o"],
+            Action::CopyUrl => &["y"],
+            Action::CopyCommand => &["Y"],
             Action::Settings => &[","],
             Action::Help => &["?"],
             Action::Quit => &["q"],
@@ -421,7 +371,7 @@ mod tests {
     #[test]
     fn config_overrides_replace_only_the_named_actions() {
         let mut overrides = BTreeMap::new();
-        overrides.insert("start".to_string(), Keys::One("ctrl+s".into()));
+        overrides.insert("stop".to_string(), Keys::One("ctrl+s".into()));
         overrides.insert("nonsense".to_string(), Keys::One("z".into()));
         overrides.insert(
             "quit".to_string(),
@@ -429,8 +379,8 @@ mod tests {
         );
         let (keymap, problems) = Keymap::from_config(&overrides);
 
-        assert_eq!(keymap.describe(Action::Start), "ctrl+s");
-        assert_eq!(keymap.describe(Action::Stop), "x");
+        assert_eq!(keymap.describe(Action::Stop), "ctrl+s");
+        assert_eq!(keymap.describe(Action::Open), "o");
         assert_eq!(keymap.describe(Action::Quit), "Q");
         assert_eq!(
             problems,
@@ -444,13 +394,13 @@ mod tests {
     #[test]
     fn rebinding_steals_the_key_and_round_trips_through_config() {
         let mut keymap = Keymap::defaults();
-        keymap.rebind(Action::Start, "x".parse().unwrap());
-        assert_eq!(keymap.describe(Action::Start), "x");
+        keymap.rebind(Action::Open, "x".parse().unwrap());
+        assert_eq!(keymap.describe(Action::Open), "x");
         assert_eq!(keymap.describe(Action::Stop), "");
 
         let (reloaded, problems) = Keymap::from_config(&keymap.overrides());
         assert!(problems.is_empty());
-        assert_eq!(reloaded.describe(Action::Start), "x");
+        assert_eq!(reloaded.describe(Action::Open), "x");
 
         keymap.reset(Action::Stop);
         assert_eq!(keymap.describe(Action::Stop), "x");

@@ -4,8 +4,8 @@
 
 1. `brainstorming` skill for anything with open design questions.
 2. `writing-plans` for work longer than an hour. Plans live in `docs/plans/`.
-3. `test-driven-development`: failing test first for logic (detection,
-   supervisor state, log buffer, update functions).
+3. `test-driven-development`: failing test first for logic (server
+   grouping, port parsing, update functions).
 4. `systematic-debugging` when something breaks. Find the cause before
    changing code.
 5. `verification-before-completion`: run the commands and look at the output

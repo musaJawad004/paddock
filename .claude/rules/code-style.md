@@ -21,8 +21,8 @@ narration, nothing "just in case".
   a second real caller needs them.
 - No wrapper functions that only forward their arguments.
 - No defensive checks for states the types already rule out.
-- Names come from the domain: `Project`, `Process`, `Port`, `Supervisor`,
-  `LogBuffer`. Avoid `Manager`, `Handler`, `Helper`, `Util`, `Data`, `Info`.
+- Names come from the domain: `Project`, `Server`, `ServerId`, `Port`,
+  `Snapshot`. Avoid `Manager`, `Handler`, `Helper`, `Util`, `Data`, `Info`.
 - Functions fit on one screen. Split by meaning, not by line count.
 - Match the surrounding code. Consistency wins over personal preference.
 

@@ -1,6 +1,6 @@
-//! Top line: the app name, process counts by state, and where the data comes
-//! from. Bottom line: key hints for the focused pane, read from the keymap,
-//! or the current notice.
+//! Top line: the app name, how many servers are running, and where the data
+//! comes from. Bottom line: key hints for the focused pane, read from the
+//! keymap, or the current notice.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::{Alignment, Rect};
@@ -10,35 +10,25 @@ use unicode_width::UnicodeWidthStr;
 
 use super::app::{App, Focus, NoticeKind};
 use super::keys::Action;
-use super::theme::Theme;
-use crate::model::ProcessState;
 
 pub fn render_header(app: &App, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
-    let (mut running, mut busy, mut crashed, mut stopped) = (0, 0, 0, 0);
-    for process in app.processes() {
-        match process.state {
-            ProcessState::Running => running += 1,
-            ProcessState::Starting | ProcessState::Stopping => busy += 1,
-            ProcessState::Crashed(_) => crashed += 1,
-            ProcessState::Stopped | ProcessState::Exited => stopped += 1,
-        }
+    let (running, stopping) = app.counts();
+    let projects = app.snapshot.projects.len();
+    let mut spans = vec![Span::styled(" ▞ paddock ", theme.accent()), Span::raw("  ")];
+    if running > 0 {
+        let servers = if running == 1 { "server" } else { "servers" };
+        let in_projects = if projects == 1 { "project" } else { "projects" };
+        spans.push(Span::styled(
+            format!("● {running} {servers} in {projects} {in_projects} "),
+            theme.success(),
+        ));
     }
-
-    let mut spans = vec![Span::styled(" ▞ paddock ", theme.accent()), Span::raw(" ")];
-    let counts = [
-        (running, ProcessState::Running, "running"),
-        (busy, ProcessState::Starting, "busy"),
-        (crashed, ProcessState::Crashed(None), "down"),
-        (stopped, ProcessState::Stopped, "stopped"),
-    ];
-    for (count, state, label) in counts {
-        if count > 0 {
-            spans.push(Span::styled(
-                format!(" {} {count} {label} ", Theme::glyph(state)),
-                theme.state(state),
-            ));
-        }
+    if stopping > 0 {
+        spans.push(Span::styled(
+            format!(" ◐ {stopping} stopping "),
+            theme.warning(),
+        ));
     }
     Paragraph::new(Line::from(spans)).render(area, buf);
     Paragraph::new(Span::styled(format!("{} ", app.source), theme.dim()))
@@ -61,41 +51,23 @@ pub fn render_footer(app: &App, area: Rect, buf: &mut Buffer) {
     let keys = &app.keymap;
     let first = |action| keys.first(action);
     let moves = format!("{}{}", first(Action::Up), first(Action::Down));
-    let discovered = app.selected_discovered().is_some();
     let hints: Vec<(String, &str)> = match app.focus {
-        Focus::Processes if discovered => vec![
+        Focus::Servers => vec![
             (moves, "move"),
-            (first(Action::AddProject), "add project"),
-            (first(Action::Kill), "stop it"),
-            (first(Action::NextPane), "panes"),
-            (first(Action::Help), "help"),
-            (first(Action::Quit), "quit"),
-        ],
-        Focus::Processes => vec![
-            (moves, "move"),
-            (first(Action::Start), "start"),
+            (first(Action::Open), "open"),
+            (first(Action::CopyUrl), "copy URL"),
             (first(Action::Stop), "stop"),
-            (first(Action::Restart), "restart"),
-            (first(Action::Details), "details"),
-            (first(Action::NextPane), "panes"),
-            (first(Action::AddProject), "add"),
+            (first(Action::Kill), "kill"),
+            (first(Action::NextPane), "ports"),
             (first(Action::Settings), "settings"),
             (first(Action::Help), "help"),
             (first(Action::Quit), "quit"),
         ],
         Focus::Ports => vec![
             (moves, "move"),
-            ("enter".into(), "go to process"),
-            (first(Action::Kill), "kill"),
-            (first(Action::NextPane), "panes"),
-            ("esc".into(), "back"),
-        ],
-        Focus::Logs => vec![
-            (moves, "line"),
-            (first(Action::Mark), "select"),
-            (first(Action::Copy), "copy"),
-            (first(Action::CopyAll), "copy all"),
-            (first(Action::Follow), "newest"),
+            ("enter".into(), "go to server"),
+            (first(Action::Open), "open"),
+            (first(Action::Kill), "free port"),
             ("esc".into(), "back"),
         ],
     };

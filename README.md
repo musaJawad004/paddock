@@ -1,16 +1,18 @@
 # Paddock
 
-A terminal workspace for your dev servers.
+Every dev server on this machine, in one place.
 
-Every project, every process and every port in one place. Paddock finds your
-projects, works out how to run them, and lets you start, stop and watch them
-from a single TUI. Close it and your servers keep running. Open it again and
-they are still there.
+Paddock is a terminal dashboard. It finds the dev servers you started in any
+terminal, editor or agent, groups them by project, and shows what each one
+is: its ports, command, folder, uptime, CPU and memory. From there you can
+open one in the browser, copy its URL or command, stop it, or free a port
+something else is holding.
 
-> Early development (v0.1). Paddock runs your real projects, but it still
-> lives inside the dashboard: quitting stops your servers (it asks first).
-> Keeping them running in the background comes next. The plan is in
-> [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Paddock never starts anything. It watches, and it stops only what you
+confirm.
+
+> Early development (v0.1). macOS first; Linux works where `lsof` is
+> installed. The design is in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Try it
 
@@ -19,22 +21,19 @@ Needs Rust 1.95 or newer.
 ```bash
 cargo install --git https://github.com/musaJawad004/paddock --locked
 
-cd ~/Projects/my-app && paddock add    # add a project (or press a inside)
-paddock                                # open the dashboard
-paddock list                           # what Paddock will run, without the UI
-paddock --demo                         # look around with made-up projects
+paddock            # the dashboard
+paddock list       # the same, printed once
+paddock --demo     # look around with made-up servers
 ```
 
 | Key | Does |
 |---|---|
-| `↑` `↓` | pick a process (or a port, or a log line) |
-| `tab` | move between processes, ports and logs |
-| `s` `x` `r` | start, stop, restart |
-| `K` | kill now, or kill whatever holds the selected port |
-| `p` / `m` | change the port / move to another project |
-| `a` / `D` | add a project (folder picker, or the selected running server) / remove one |
-| `i` | details: folder, pid, uptime, command, CPU, memory |
-| `v` `y` `Y` | select lines, copy them, copy all logs |
+| `↑` `↓` | pick a server (or a port) |
+| `tab` | switch between servers and ports |
+| `o` | open it in the browser |
+| `y` / `Y` | copy its URL / its full command |
+| `x` | stop it: SIGTERM to its whole process tree, SIGKILL after 5 s |
+| `K` | kill it now, or free the selected port |
 | `,` | settings: theme, keys, splash |
 | `?` / `q` | help / quit |
 
@@ -46,26 +45,33 @@ theme = "paddock"   # terminal, catppuccin-mocha, dracula, nord, gruvbox, tokyo-
 splash = true
 
 [keys]
-start = "S"
+stop = "s"
 quit = ["q", "ctrl+q"]
 ```
 
-## What it does
+## How it finds servers
 
-- Find dev servers you already started in other terminals and offer to add
-  their projects.
-- Detect how to run a project from `package.json`, `Cargo.toml`,
-  `docker-compose.yml` or a `Procfile`. No config needed for common setups.
-- Start, stop, restart or kill each process; stopping reaches the whole
-  process tree, so nothing is left holding a port.
-- Show live logs per process, with colours, search and a red marker when
-  something crashes.
-- List every listening port, which project owns it, and let you free a port
-  held by a stray process.
-- Show Expo's QR code and every tool's own colours in the log pane.
-- Real CPU and memory per process tree, from your machine.
+Every two seconds Paddock asks `lsof` which programs listen on which ports,
+and the process table who started them. A listener counts as a dev server
+when it belongs to you and runs in a folder below your home folder. Its
+project is the outermost folder around it with a project file
+(`package.json`, `Cargo.toml`, `go.mod`, `pyproject.toml`...).
 
-Local only. Paddock has no network code and sends no telemetry.
+The server is the whole tree you started: `yarn dev` and the `sh`, `vite`
+and `esbuild` processes under it count as one server called `dev`. Paddock
+never counts your shell, editor, terminal or a coding agent such as Claude
+Code as part of a server, so stopping a server never stops them.
+
+## What it cannot do
+
+A server's output goes only to the terminal that started it, and no other
+program can read it. So Paddock shows everything about a server except its
+logs.
+
+## Privacy
+
+Paddock reads the process table and runs `lsof`. It has no network code and
+sends no telemetry; the build fails if network code is added.
 
 ## License
 

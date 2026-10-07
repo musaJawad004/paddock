@@ -1,25 +1,29 @@
 ---
 paths:
-  - "src/daemon/**"
-  - "src/detect/**"
+  - "src/monitor/**"
+  - "src/tui/mod.rs"
 ---
 # Process safety
 
-Paddock starts and stops other programs on the user's machine. Mistakes here
-kill someone's unsaved work.
+Paddock watches the user's processes and stops them when asked. A mistake
+here kills someone's unsaved work, their shell, or their editor.
 
-- Every child is started in its own process group (`setsid`/`process_group(0)`)
-  so stop and restart reach the whole tree (`yarn` → `node` → `esbuild`).
-- Stop is graceful: SIGTERM to the group, wait (default 5 s), then SIGKILL.
-- Only signal processes Paddock started, tracked by pid **and** start time
-  (pids get reused). The ports view may offer to kill a foreign process, but
-  only after the user confirms in the UI, naming the pid and command.
-- Commands come from the user's own project files or `paddock.toml`. Run
-  them through the user's shell (`$SHELL -lc`) so their PATH and version
-  managers work, but never build a command string out of file names or
-  other data Paddock read; pass those as arguments.
-- Detection is read-only. Paddock never writes into a project folder except
-  `paddock.toml`, and only when the user asks.
-- No network code. Paddock does not phone home, check for updates or send
-  telemetry. "Open in browser" hands the URL to the OS and stops there.
-- Never log environment variables or the contents of `.env` files.
+- Paddock never starts a process. The only programs it runs are `lsof` (to
+  read ports) and the OS's `open`/`xdg-open`, `pbcopy`/`wl-copy`/`xclip`/
+  `xsel` (on user request), each with fixed arguments and no shell.
+- Every signal is sent from `monitor::actions` and nowhere else, only for a
+  target the user confirmed in the TUI.
+- Before signalling, refresh the process table and check the pid still has
+  the start time the user saw. A reused pid is never signalled.
+- Never signal pid 1, Paddock itself, or any process above it (its shell and
+  terminal).
+- A server's tree is bounded by dev runners (`monitor::servers`): never
+  include interactive shells, editors, terminals or coding agents. When in
+  doubt, stop the walk lower; a server that stops too little is better than
+  one that takes the user's shell with it.
+- Stop is graceful: SIGTERM to the tree, children first, SIGKILL after 5 s.
+- A foreign listener is signalled only after a fresh `lsof` shows it still
+  holds the port.
+- No network code. Opening a URL hands it to the OS and stops there.
+- Never log or display environment variables (`clean_cmd` strips ones that
+  leak into command lines).

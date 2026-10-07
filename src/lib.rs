@@ -1,26 +1,25 @@
-//! Paddock: a terminal workspace for dev servers.
+//! Paddock: a terminal dashboard for the dev servers running on your
+//! machine. It watches; it never starts anything.
 //!
 //! Dependency direction (enforced by review, see `docs/ARCHITECTURE.md`):
 //!
 //! ```text
-//! cli ──▶ tui ─────┐
+//! cli ──▶ tui ─────┐   (tui also reads and writes config)
 //!   ├───▶ demo ────┤
-//!   └───▶ daemon ──┼──▶ ipc ──▶ model
-//!          └──▶ detect ───────▶ model
-//! config ─────────────────────▶ model
+//!   └───▶ monitor ─┼──▶ ipc ──▶ model
+//!          └──▶ project ──────▶ (std only)
 //! ```
 //!
-//! `demo` stands in for `daemon` until the supervisor can run real projects.
-//!
-//! `tui` and `daemon` never import each other. They only exchange
-//! `ipc` messages, which is what lets v0.2 move the daemon into its own
-//! process without touching the TUI.
+//! `tui` and `monitor` never import each other. They only exchange `ipc`
+//! messages, so the monitor can move into a background process later
+//! without touching the TUI. `demo` stands in for `monitor` with made-up
+//! data.
 
 pub mod cli;
 pub mod config;
-pub mod daemon;
 pub mod demo;
-pub mod detect;
 pub mod ipc;
 pub mod model;
+pub mod monitor;
+pub mod project;
 pub mod tui;

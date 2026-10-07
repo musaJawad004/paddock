@@ -11,8 +11,6 @@
 
 use ratatui::style::{Color, Modifier, Style};
 
-use crate::model::ProcessState;
-
 #[derive(Debug)]
 pub struct Palette {
     pub name: &'static str,
@@ -289,24 +287,6 @@ impl Theme {
 
     pub fn warning(self) -> Style {
         self.fg(self.palette.yellow)
-    }
-
-    pub fn state(self, state: ProcessState) -> Style {
-        match state {
-            ProcessState::Running => self.fg(self.palette.green),
-            ProcessState::Starting | ProcessState::Stopping => self.fg(self.palette.yellow),
-            ProcessState::Crashed(_) => self.fg(self.palette.red).add_modifier(Modifier::BOLD),
-            ProcessState::Stopped | ProcessState::Exited => self.dim(),
-        }
-    }
-
-    pub fn glyph(state: ProcessState) -> &'static str {
-        match state {
-            ProcessState::Running => "●",
-            ProcessState::Starting | ProcessState::Stopping => "◐",
-            ProcessState::Crashed(_) => "✗",
-            ProcessState::Stopped | ProcessState::Exited => "○",
-        }
     }
 }
 

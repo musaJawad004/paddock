@@ -1,1 +1,0 @@
-{ "name": "api", "scripts": { "start": "tsx watch src/index.ts", "lint": "eslint ." } }

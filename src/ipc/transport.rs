@@ -1,10 +1,8 @@
 //! Moves `Request`s and `Event`s between the two sides.
 //!
-//! Today: a pair of bounded tokio channels inside one process. v0.2 adds a
-//! Unix socket with one JSON message per line behind the same two ends, so
-//! neither side knows which transport is in use.
-//!
-//! Unix sockets only. No TCP, ever: the supply chain scan rejects it.
+//! A pair of bounded tokio channels inside one process. A Unix socket could
+//! sit behind the same two ends later; never TCP: the supply chain scan
+//! rejects it.
 
 use tokio::sync::mpsc;
 

@@ -1,23 +1,24 @@
-//! Left column. Top: projects with their processes, status glyphs
-//! (● running, ◐ starting or stopping, ✗ crashed or killed, ○ stopped),
-//! port, CPU and memory, then dev servers running outside Paddock in
-//! projects it does not have yet. Bottom: every listening port; listeners
-//! Paddock did not start are yellow. The focused pane gets the accent border.
+//! Left column. Top: every project with a dev server running, and its
+//! servers with status (● running, ◐ stopping), ports, CPU and memory.
+//! Bottom: listening ports; yellow ones belong to other programs. The
+//! focused pane gets the accent border.
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, HighlightSpacing, List, ListItem, ListState, StatefulWidget};
 
 use super::app::{App, Focus};
 use super::fit;
 use super::theme::Theme;
-use crate::model::{ProcessInfo, ProjectInfo, ResourceUsage};
+use crate::model::{Project, ResourceUsage, Server, ServerState};
 
 pub const WIDTH: u16 = 38;
-const NAME_WIDTH: usize = 10;
+const NAME_WIDTH: usize = 11;
+const PORT_WIDTH: usize = 8;
 
-fn border(app: &App, pane: Focus) -> ratatui::style::Style {
+fn border(app: &App, pane: Focus) -> Style {
     if app.focus == pane && app.overlay.is_none() {
         app.theme.focused_border()
     } else {
@@ -25,54 +26,25 @@ fn border(app: &App, pane: Focus) -> ratatui::style::Style {
     }
 }
 
-pub fn render_projects(app: &App, area: Rect, buf: &mut Buffer) {
+pub fn render_servers(app: &App, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
     let mut items = Vec::new();
     let mut selected_row = None;
-    let mut index = 0;
-
     for (n, project) in app.snapshot.projects.iter().enumerate() {
         if n > 0 {
             items.push(ListItem::new(""));
         }
         items.push(ListItem::new(project_line(project, theme)));
-        for process in &project.processes {
-            if index == app.selected {
+        for server in &project.servers {
+            if app.is_selected(server.id) {
                 selected_row = Some(items.len());
             }
-            items.push(ListItem::new(process_line(process, theme)));
-            index += 1;
+            items.push(ListItem::new(server_line(server, theme)));
         }
     }
-
-    if !app.snapshot.discovered.is_empty() {
-        if !items.is_empty() {
-            items.push(ListItem::new(""));
-        }
-        items.push(ListItem::new(Line::styled(
-            " Running, not added",
-            theme.warning(),
-        )));
-        for found in &app.snapshot.discovered {
-            if index == app.selected {
-                selected_row = Some(items.len());
-            }
-            let ports: Vec<String> = found.ports.iter().map(|p| format!(":{p}")).collect();
-            items.push(ListItem::new(Line::from(vec![
-                Span::raw("  "),
-                Span::styled("◇", theme.warning()),
-                Span::raw(" "),
-                Span::styled(fit(&found.name, NAME_WIDTH), theme.text()),
-                Span::styled(fit(&ports.join(" "), 13), theme.dim()),
-                Span::styled(found.kind.clone(), theme.dim()),
-            ])));
-            index += 1;
-        }
-    }
-
     let block = Block::bordered()
-        .title(Span::styled(" Projects ", theme.title()))
-        .border_style(border(app, Focus::Processes));
+        .title(Span::styled(" Running ", theme.title()))
+        .border_style(border(app, Focus::Servers));
     let list = List::new(items)
         .block(block)
         .highlight_style(theme.selected())
@@ -81,39 +53,48 @@ pub fn render_projects(app: &App, area: Rect, buf: &mut Buffer) {
     StatefulWidget::render(list, area, buf, &mut state);
 }
 
-fn project_line(project: &ProjectInfo, theme: Theme) -> Line<'static> {
-    let up = project.processes.iter().filter(|p| p.state.is_up()).count();
+fn project_line(project: &Project, theme: Theme) -> Line<'static> {
     Line::from(vec![
         Span::styled(format!(" {}", project.name), theme.title()),
-        Span::styled(
-            format!("  {up}/{} up", project.processes.len()),
-            theme.dim(),
-        ),
+        Span::styled(format!("  {}", project.kind), theme.dim()),
     ])
 }
 
-fn process_line(process: &ProcessInfo, theme: Theme) -> Line<'static> {
-    let state = theme.state(process.state);
-    let port = process.port.map(|p| format!(":{p}")).unwrap_or_default();
-    let usage = process.usage.map(format_usage).unwrap_or_default();
+fn server_line(server: &Server, theme: Theme) -> Line<'static> {
+    let (glyph, style) = match server.state {
+        ServerState::Running => ("●", theme.success()),
+        ServerState::Stopping => ("◐", theme.warning()),
+    };
+    let port = server
+        .ports
+        .first()
+        .map(|p| format!(":{p}"))
+        .unwrap_or_default();
     Line::from(vec![
         Span::raw("  "),
-        Span::styled(Theme::glyph(process.state), state),
+        Span::styled(glyph, style),
         Span::raw(" "),
-        Span::styled(fit(&process.id.name, NAME_WIDTH), state),
-        Span::styled(fit(&port, 7), theme.dim()),
-        Span::styled(usage, theme.dim()),
+        Span::styled(fit(&server.name, NAME_WIDTH), style),
+        Span::styled(fit(&format!(" {port}"), PORT_WIDTH), theme.accent()),
+        Span::styled(format_usage(server.usage), theme.dim()),
     ])
 }
 
-fn format_usage(usage: ResourceUsage) -> String {
+pub fn format_usage(usage: ResourceUsage) -> String {
+    format!(
+        "{:>4.0}% {:>5}",
+        usage.cpu_percent,
+        format_memory(usage.memory_bytes)
+    )
+}
+
+pub fn format_memory(bytes: u64) -> String {
     const MIB: u64 = 1024 * 1024;
-    let memory = if usage.memory_bytes >= 1024 * MIB {
-        format!("{:.1}G", usage.memory_bytes as f64 / (1024 * MIB) as f64)
+    if bytes >= 1024 * MIB {
+        format!("{:.1}G", bytes as f64 / (1024 * MIB) as f64)
     } else {
-        format!("{}M", usage.memory_bytes / MIB)
-    };
-    format!("{:>4.0}% {memory:>5}", usage.cpu_percent)
+        format!("{}M", bytes / MIB)
+    }
 }
 
 pub fn render_ports(app: &App, area: Rect, buf: &mut Buffer) {
@@ -126,20 +107,25 @@ pub fn render_ports(app: &App, area: Rect, buf: &mut Buffer) {
         .map(|port| {
             let number = Span::styled(fit(&format!(" :{}", port.port), 8), theme.accent());
             let rest = width.saturating_sub(8);
-            let line = match &port.owner {
-                Some(owner) => Line::from(vec![
-                    number,
-                    Span::styled(fit(&owner.to_string(), rest), theme.text()),
-                ]),
-                None => Line::from(vec![
-                    number,
-                    Span::styled(
-                        fit(&format!("{} pid {}", port.command, port.pid), rest),
-                        theme.warning(),
-                    ),
-                ]),
+            let label = match port.owner {
+                Some(owner) => {
+                    let name = app
+                        .snapshot
+                        .projects
+                        .iter()
+                        .find_map(|p| {
+                            let s = p.servers.iter().find(|s| s.id == owner)?;
+                            Some(format!("{}/{}", p.name, s.name))
+                        })
+                        .unwrap_or_else(|| port.command.clone());
+                    Span::styled(fit(&name, rest), theme.text())
+                }
+                None => Span::styled(
+                    fit(&format!("{} pid {}", port.command, port.pid), rest),
+                    theme.warning(),
+                ),
             };
-            ListItem::new(line)
+            ListItem::new(Line::from(vec![number, label]))
         })
         .collect();
     let block = Block::bordered()

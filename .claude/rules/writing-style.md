@@ -21,8 +21,8 @@ CLI `--help` text, error messages and every string shown in the TUI.
 ## How to write
 
 - Short sentences. Plain words. Say what the thing does, then stop.
-- Specific beats general: "restarts a crashed process after 1 s, 2 s, 4 s"
-  beats "handles failures gracefully".
+- Specific beats general: "SIGTERM, then SIGKILL after 5 s" beats "stops it
+  gracefully".
 - Second person for docs ("you"), imperative for commit subjects.
 - Error messages say what happened and what to do:
   `port 3000 is used by pid 812 (node, not started by Paddock). Press k to kill it.`

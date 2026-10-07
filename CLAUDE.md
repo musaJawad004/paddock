@@ -1,27 +1,27 @@
 # Paddock
 
-A terminal workspace for your dev servers. Paddock finds your projects,
-works out how to run them, starts and stops their processes, shows live logs
-in one TUI, and tells you which project owns which port. Local only: no
-network code, no telemetry.
+A terminal dashboard for the dev servers running on this machine. Paddock
+finds them (lsof plus the process table), groups them by project, shows
+ports, command, folder, uptime, CPU and memory, and stops them when the user
+confirms. It never starts anything. Local only: no network code, no
+telemetry.
 
 Design and roadmap: `docs/ARCHITECTURE.md`. Read it before changing module
 boundaries.
 
 ## Stack
 
-Rust (edition 2024, stable), ratatui 0.30 with crossterm, tokio,
-portable-pty, vt100, sysinfo, clap, serde and toml. macOS first, Linux
-second.
+Rust (edition 2024, stable), ratatui 0.30 with crossterm, tokio, sysinfo,
+nix, clap, serde and toml. macOS first, Linux where lsof exists.
 
 ## Commands
 
 ```bash
-cargo run                                   # open the TUI (demo data for now)
-cargo install --path . --locked             # install so `paddock` works anywhere
+cargo run                                   # the dashboard
+cargo run -- list                           # running servers, printed once
+cargo run -- --demo                         # made-up servers
 cargo run -- --no-splash --theme nord       # one-off flags; --config-path prints the config file
-cargo run -- add ~/Projects/shop            # add a project; `list` and `remove <name>` too
-cargo run -- --demo                         # fake data, nothing runs
+cargo install --path . --locked             # install so `paddock` works anywhere
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
@@ -49,21 +49,15 @@ Pin every action to a full commit SHA with the version in a comment.
 
 ## Status
 
-v0.1 works end to end on real projects. `paddock add <folder>` registers a
-project; `detect` finds what to run; `daemon::supervisor` runs each process
-in a PTY, streams its output, stops process groups (SIGTERM, SIGKILL after
-5 s), kills, restarts, changes ports (`PORT` plus the tool's flag) and moves
-processes between projects (saved as overrides in config.toml). Ports come
-from `lsof`, CPU and memory from `sysinfo`. `paddock --demo` still shows the
-fake backend in `src/demo.rs`.
+v0.1: the monitor finds and groups running servers (`monitor::servers` is
+pure and unit tested with made-up process tables), the TUI shows them, and
+stop, kill and free-port work through `monitor::actions`, which re-checks
+every pid before signalling it. `tests/monitor.rs` runs real processes.
 
-The supervisor runs inside the `paddock` process for now, so quitting stops
-every process (the TUI asks first). Next: v0.2 daemon over a Unix socket so
-servers keep running after the TUI quits.
-
-Tests: unit tests next to the code, `tests/supervisor.rs` and
-`tests/daemon_loop.rs` run real child processes (tiny shell commands in
-temp folders) and must leave no orphans.
+Paddock never starts processes and has no log pane. Do not add either
+without discussing it with the user first: starting projects was removed
+on purpose (it started duplicate servers), and logs of servers Paddock did
+not start cannot be read.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in
@@ -80,8 +74,8 @@ intended UI change, run `INSTA_UPDATE=always cargo test`, then read the
 - `code-style.md`: code should read as written by a careful human. No
   narrating comments, no speculative abstractions.
 - `rust.md`: error handling, async, module boundaries, dependencies.
-- `process-safety.md`: process groups, only signal our own pids, no shell
-  strings built from data, no network.
+- `process-safety.md`: never start anything; signal only confirmed targets,
+  re-checked by pid and start time; never Paddock's own line; no network.
 - `git-and-workflow.md`: the feature workflow and commit format.
 - `testing-and-verification.md`: what to test and how to check for real.
 

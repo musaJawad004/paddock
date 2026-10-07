@@ -1,19 +1,11 @@
-//! Loads and saves configuration. Never runs commands.
+//! Loads and saves the user's settings. Never runs commands.
 //!
-//! Global: `$XDG_CONFIG_HOME/paddock/config.toml`, falling back to
+//! `$XDG_CONFIG_HOME/paddock/config.toml`, falling back to
 //! `~/.config/paddock/config.toml` on macOS and Linux alike, which is where
-//! terminal tools are expected to keep config. Holds the list of project
-//! folders, UI preferences and key overrides. A missing file means defaults.
-//!
-//! Per project (to come with `detect`): optional `paddock.toml` in the
-//! project root. Its processes replace detected ones with the same name.
-//!
-//! Unknown keys are ignored, so an older Paddock can read a newer config.
-//! Saving writes a temp file and renames it, so a crash never leaves half a
-//! config behind. Two parts of Paddock write the file (the TUI saves the UI
-//! settings, the supervisor saves projects and process overrides), so every
-//! write goes through `update`: read the file, change one part, write it
-//! back, all under one lock.
+//! terminal tools are expected to keep config. A missing file means
+//! defaults. Unknown keys are ignored, so an older Paddock can read a newer
+//! config. Saving writes a temp file and renames it, so a crash never leaves
+//! half a config behind.
 //!
 //! ```toml
 //! [ui]
@@ -21,13 +13,8 @@
 //! splash = true
 //!
 //! [keys]
-//! start = "s"
+//! stop = "x"
 //! quit = ["q", "ctrl+q"]
-//!
-//! # Per process, keyed by "<project folder>#<process name>".
-//! [processes."~/Projects/shop#web"]
-//! port = 3100
-//! group = "frontends"
 //! ```
 
 use std::collections::BTreeMap;
@@ -40,37 +27,11 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    pub projects: Vec<PathBuf>,
     pub ui: Ui,
-    /// Action name to one key or a list of keys, e.g. `start = "s"`.
+    /// Action name to one key or a list of keys, e.g. `stop = "x"`.
     /// Actions not listed keep their default keys.
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: BTreeMap<String, Keys>,
-    /// Changes the user made to detected processes.
-    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
-    pub processes: BTreeMap<String, ProcessOverride>,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct ProcessOverride {
-    /// Port to run on instead of the detected one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub port: Option<u16>,
-    /// Project to show the process under instead of its own folder.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub group: Option<String>,
-}
-
-impl ProcessOverride {
-    pub fn is_empty(&self) -> bool {
-        self.port.is_none() && self.group.is_none()
-    }
-}
-
-/// The key for `Config::processes`.
-pub fn process_key(project: &Path, name: &str) -> String {
-    format!("{}#{name}", project.display())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -139,32 +100,6 @@ pub fn save(config: &Config) -> Result<(), ConfigError> {
     save_to(config, &path()?)
 }
 
-static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
-/// Reads the current file, applies `change`, writes it back. Returns the
-/// config as saved.
-pub fn update(change: impl FnOnce(&mut Config)) -> Result<Config, ConfigError> {
-    update_at(&path()?, change)
-}
-
-pub fn update_at(path: &Path, change: impl FnOnce(&mut Config)) -> Result<Config, ConfigError> {
-    let _guard = WRITE_LOCK
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
-    let mut config = load_from(path)?;
-    change(&mut config);
-    save_to(&config, path)?;
-    Ok(config)
-}
-
-/// `~/x` to `$HOME/x`. Other paths are returned as they are.
-pub fn expand_home(path: &Path) -> PathBuf {
-    match (path.strip_prefix("~"), std::env::var_os("HOME")) {
-        (Ok(rest), Some(home)) => Path::new(&home).join(rest),
-        _ => path.to_owned(),
-    }
-}
-
 pub fn load_from(path: &Path) -> Result<Config, ConfigError> {
     let text = match fs::read_to_string(path) {
         Ok(text) => text,
@@ -220,7 +155,7 @@ mod tests {
         config.ui.splash = false;
         config
             .keys
-            .insert("start".into(), Keys::One("ctrl+s".into()));
+            .insert("stop".into(), Keys::One("ctrl+s".into()));
         config
             .keys
             .insert("quit".into(), Keys::Many(vec!["q".into(), "ctrl+q".into()]));
@@ -230,38 +165,17 @@ mod tests {
     }
 
     #[test]
-    fn unknown_and_missing_keys_are_fine() {
+    fn unknown_and_old_keys_are_ignored() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("config.toml");
-        fs::write(&path, "future_option = 1\n[ui]\ntheme = \"dracula\"\n").unwrap();
+        fs::write(
+            &path,
+            "projects = [\"/old\"]\n[ui]\ntheme = \"dracula\"\n[processes.\"x#y\"]\nport = 1\n",
+        )
+        .unwrap();
         let config = load_from(&path).unwrap();
         assert_eq!(config.ui.theme, "dracula");
         assert!(config.ui.splash);
-    }
-
-    #[test]
-    fn update_changes_one_part_and_keeps_the_rest() {
-        let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("config.toml");
-        update_at(&path, |c| c.ui.theme = "nord".into()).unwrap();
-        update_at(&path, |c| {
-            c.processes.insert(
-                process_key(Path::new("/p/shop"), "web"),
-                ProcessOverride {
-                    port: Some(3100),
-                    group: None,
-                },
-            );
-        })
-        .unwrap();
-        let config = load_from(&path).unwrap();
-        assert_eq!(config.ui.theme, "nord");
-        assert_eq!(config.processes["/p/shop#web"].port, Some(3100));
-        let text = fs::read_to_string(&path).unwrap();
-        assert!(
-            !text.contains("group"),
-            "empty fields are not written:\n{text}"
-        );
     }
 
     #[test]
