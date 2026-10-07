@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{ListeningPort, ProcessId, ProcessState, ResourceUsage, Snapshot};
 
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 
 /// TUI to backend.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -37,6 +37,10 @@ pub enum Request {
         port: u16,
         pid: u32,
     },
+    /// Add a project folder to config.toml and detect what it runs.
+    AddProject(std::path::PathBuf),
+    /// Remove a project (by its shown name) from config.toml.
+    RemoveProject(String),
 }
 
 /// Backend to TUI.

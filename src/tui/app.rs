@@ -9,6 +9,7 @@
 
 use std::cell::Cell;
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
@@ -18,7 +19,7 @@ use ratatui::widgets::{Block, Paragraph, Widget};
 
 use super::ansi;
 use super::keys::{Action, Keymap};
-use super::overlay::{Input, InputPurpose, Overlay, Picker};
+use super::overlay::{Confirmed, Input, InputPurpose, Overlay, Picker};
 use super::settings::Settings;
 use super::theme::Theme;
 use super::{details, help, logs_view, overlay, settings, sidebar, splash, status_bar};
@@ -106,6 +107,11 @@ pub struct App {
     /// Log pane height from the last frame, for paging and keeping the
     /// cursor on screen.
     pub(super) log_height: Cell<usize>,
+    /// True when quitting stops the processes (the supervisor runs inside
+    /// the TUI until the v0.2 daemon), so quitting asks first.
+    stops_on_quit: bool,
+    /// Suggested folder when adding a project.
+    cwd: PathBuf,
     dirty: bool,
     quit: bool,
 }
@@ -142,9 +148,21 @@ impl App {
             splash_started: splash.then_some(now),
             now,
             log_height: Cell::new(20),
+            stops_on_quit: false,
+            cwd: PathBuf::new(),
             dirty: true,
             quit: false,
         }
+    }
+
+    pub fn with_backend(mut self, stops_on_quit: bool, cwd: PathBuf) -> Self {
+        self.stops_on_quit = stops_on_quit;
+        self.cwd = cwd;
+        self
+    }
+
+    pub(super) fn quit_now(&mut self) {
+        self.quit = true;
     }
 
     pub fn should_quit(&self) -> bool {
@@ -334,8 +352,18 @@ impl App {
             Action::Settings => {
                 self.overlay = Some(Overlay::Settings(Settings::new(self.theme.name())));
             }
+            Action::AddProject => {
+                self.overlay = Some(Overlay::Input(Input {
+                    title: "Add a project folder".into(),
+                    value: super::tilde(&self.cwd),
+                    hint: "Any folder with package.json, Cargo.toml, compose.yaml, a Procfile or paddock.toml.".into(),
+                    error: None,
+                    purpose: InputPurpose::AddProject,
+                }));
+            }
+            Action::RemoveProject => self.confirm_remove_project(),
             Action::Help => self.overlay = Some(Overlay::Help),
-            Action::Quit => self.quit = true,
+            Action::Quit => self.request_quit(),
         }
         None
     }
@@ -519,7 +547,10 @@ impl App {
                     },
                 ),
             };
-            self.overlay = Some(Overlay::Confirm { message, request });
+            self.overlay = Some(Overlay::Confirm {
+                message,
+                then: Confirmed::Send(request),
+            });
             return;
         }
         let Some(process) = self.selected_process() else {
@@ -539,7 +570,39 @@ impl App {
                 "Kill {}{pid} right now? It gets no time to clean up.",
                 process.id
             ),
-            request: Request::Kill(process.id.clone()),
+            then: Confirmed::Send(Request::Kill(process.id.clone())),
+        });
+    }
+
+    fn request_quit(&mut self) {
+        let running = self
+            .processes()
+            .filter(|p| p.state.is_up() || p.state == ProcessState::Stopping)
+            .count();
+        if !self.stops_on_quit || running == 0 {
+            self.quit = true;
+            return;
+        }
+        let what = if running == 1 {
+            "the running process".to_owned()
+        } else {
+            format!("all {running} running processes")
+        };
+        self.overlay = Some(Overlay::Confirm {
+            message: format!("Quit and stop {what}?"),
+            then: Confirmed::Quit,
+        });
+    }
+
+    fn confirm_remove_project(&mut self) {
+        let Some(process) = self.selected_process() else {
+            self.notify(NoticeKind::Info, "There is no project to remove.");
+            return;
+        };
+        let name = process.id.project.clone();
+        self.overlay = Some(Overlay::Confirm {
+            message: format!("Remove {name} from Paddock? Its files stay where they are."),
+            then: Confirmed::Send(Request::RemoveProject(name)),
         });
     }
 
@@ -1056,6 +1119,26 @@ pub(crate) mod tests {
             KeyModifiers::CONTROL,
         )));
         assert!(app.should_quit());
+    }
+
+    #[test]
+    fn quitting_asks_first_when_it_would_stop_processes() {
+        let mut app = app().with_backend(true, PathBuf::from("/tmp"));
+        press(&mut app, KeyCode::Char('q'));
+        assert!(!app.should_quit());
+        assert!(matches!(app.overlay, Some(Overlay::Confirm { .. })));
+        press(&mut app, KeyCode::Char('y'));
+        assert!(app.should_quit());
+    }
+
+    #[test]
+    fn adding_a_project_suggests_the_current_folder() {
+        let mut app = app().with_backend(true, PathBuf::from("/tmp/here"));
+        press(&mut app, KeyCode::Char('a'));
+        assert_eq!(
+            press(&mut app, KeyCode::Enter),
+            send(Request::AddProject(PathBuf::from("/tmp/here")))
+        );
     }
 
     #[test]

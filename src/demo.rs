@@ -290,6 +290,9 @@ impl Demo {
             Request::SetPort { id, port } => self.set_port(id, port, now),
             Request::Move { id, project } => self.move_to(id, project),
             Request::KillPort { port, pid } => self.kill_port(port, pid),
+            Request::AddProject(_) | Request::RemoveProject(_) => vec![Event::Notice(
+                "The demo cannot add or remove projects. Run paddock without --demo.".into(),
+            )],
         }
     }
 

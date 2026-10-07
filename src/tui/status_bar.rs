@@ -69,6 +69,7 @@ pub fn render_footer(app: &App, area: Rect, buf: &mut Buffer) {
             (first(Action::Restart), "restart"),
             (first(Action::Details), "details"),
             (first(Action::NextPane), "panes"),
+            (first(Action::AddProject), "add"),
             (first(Action::Settings), "settings"),
             (first(Action::Help), "help"),
             (first(Action::Quit), "quit"),

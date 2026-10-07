@@ -7,8 +7,9 @@ projects, works out how to run them, and lets you start, stop and watch them
 from a single TUI. Close it and your servers keep running. Open it again and
 they are still there.
 
-> Early development. The dashboard runs on demo data for now: nothing is
-> started on your machine yet. The plan is in
+> Early development (v0.1). Paddock runs your real projects, but it still
+> lives inside the dashboard: quitting stops your servers (it asks first).
+> Keeping them running in the background comes next. The plan is in
 > [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Try it
@@ -17,7 +18,11 @@ Needs Rust 1.95 or newer.
 
 ```bash
 cargo install --git https://github.com/musaJawad004/paddock --locked
-paddock
+
+cd ~/Projects/my-app && paddock add    # add a project (or press a inside)
+paddock                                # open the dashboard
+paddock list                           # what Paddock will run, without the UI
+paddock --demo                         # look around with made-up projects
 ```
 
 | Key | Does |
@@ -27,6 +32,7 @@ paddock
 | `s` `x` `r` | start, stop, restart |
 | `K` | kill now, or kill whatever holds the selected port |
 | `p` / `m` | change the port / move to another project |
+| `a` / `D` | add a project folder / remove one from the list |
 | `i` | details: folder, pid, uptime, command, CPU, memory |
 | `v` `y` `Y` | select lines, copy them, copy all logs |
 | `,` | settings: theme, keys, splash |
@@ -44,16 +50,18 @@ start = "S"
 quit = ["q", "ctrl+q"]
 ```
 
-## What it will do
+## What it does
 
 - Detect how to run a project from `package.json`, `Cargo.toml`,
   `docker-compose.yml` or a `Procfile`. No config needed for common setups.
-- Start everything a project needs with one key, in the right order.
+- Start, stop, restart or kill each process; stopping reaches the whole
+  process tree, so nothing is left holding a port.
 - Show live logs per process, with colours, search and a red marker when
   something crashes.
 - List every listening port, which project owns it, and let you free a port
   held by a stray process.
-- Open a project in the browser, or show the Expo QR code for your phone.
+- Show Expo's QR code and every tool's own colours in the log pane.
+- Real CPU and memory per process tree, from your machine.
 
 Local only. Paddock has no network code and sends no telemetry.
 

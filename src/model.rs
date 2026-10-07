@@ -4,8 +4,7 @@
 //! `Deserialize`. Changing a type changes the wire format; bump
 //! `ipc::protocol::PROTOCOL_VERSION` when you do.
 //!
-//! Still to come with `detect` and `config`: `ProcessSpec` (command, cwd,
-//! env, `depends_on`, restart policy, where it was detected from).
+//! Still to come: `depends_on` and a restart policy on `ProcessSpec`.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -32,6 +31,23 @@ impl fmt::Display for ProcessId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}/{}", self.project, self.name)
     }
+}
+
+/// How to run one process, as found by `detect` or written in paddock.toml.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProcessSpec {
+    pub name: String,
+    /// Shell command, run through the user's login shell.
+    pub command: String,
+    pub cwd: PathBuf,
+    /// Port the tool listens on by default, as a hint until it really opens.
+    pub port: Option<u16>,
+    /// Arguments that move it to another port, with `{port}` as the
+    /// placeholder, e.g. `--port {port}`. `None` when only `PORT` works.
+    pub port_args: Option<String>,
+    pub env: Vec<(String, String)>,
+    /// Where it was found, e.g. `package.json script "dev"`.
+    pub source: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

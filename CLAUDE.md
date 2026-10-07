@@ -20,6 +20,8 @@ second.
 cargo run                                   # open the TUI (demo data for now)
 cargo install --path . --locked             # install so `paddock` works anywhere
 cargo run -- --no-splash --theme nord       # one-off flags; --config-path prints the config file
+cargo run -- add ~/Projects/shop            # add a project; `list` and `remove <name>` too
+cargo run -- --demo                         # fake data, nothing runs
 cargo test
 cargo clippy --all-targets -- -D warnings
 cargo fmt
@@ -47,16 +49,21 @@ Pin every action to a full commit SHA with the version in a comment.
 
 ## Status
 
-The TUI works end to end on demo data: `src/demo.rs` answers the same
-`ipc` requests the daemon will, with fake processes, coloured logs (Expo QR
-included), ports and CPU. Implemented: `model`, `ipc`, `config`, `tui`,
-`cli`. Contracts only: `detect`, `daemon`. Next: `detect` against
-`tests/fixtures/`, then the supervisor, then switch `cli` from `demo` to the
-real backend.
+v0.1 works end to end on real projects. `paddock add <folder>` registers a
+project; `detect` finds what to run; `daemon::supervisor` runs each process
+in a PTY, streams its output, stops process groups (SIGTERM, SIGKILL after
+5 s), kills, restarts, changes ports (`PORT` plus the tool's flag) and moves
+processes between projects (saved as overrides in config.toml). Ports come
+from `lsof`, CPU and memory from `sysinfo`. `paddock --demo` still shows the
+fake backend in `src/demo.rs`.
 
-TUI features: splash with Paddy the pony, 8 themes, settings popup (`,`)
-that saves to config.toml, rebindable keys, log cursor with line and range
-copy, details view, kill, change port, move to project, kill foreign ports.
+The supervisor runs inside the `paddock` process for now, so quitting stops
+every process (the TUI asks first). Next: v0.2 daemon over a Unix socket so
+servers keep running after the TUI quits.
+
+Tests: unit tests next to the code, `tests/supervisor.rs` and
+`tests/daemon_loop.rs` run real child processes (tiny shell commands in
+temp folders) and must leave no orphans.
 
 Read a module's `//!` contract before writing code in it. If the code needs
 to break the contract, change the contract and `docs/ARCHITECTURE.md` in

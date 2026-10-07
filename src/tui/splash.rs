@@ -1,5 +1,5 @@
 //! The start-up splash: Paddy trots in, the logo wipes in behind a fence,
-//! then the tagline. About two seconds; any key skips it, and
+//! then the tagline. Three seconds; any key skips it, and
 //! `ui.splash = false` or `--no-splash` turns it off.
 //!
 //! Drawing is a pure function of the elapsed time, so it is easy to test
@@ -15,12 +15,12 @@ use ratatui::widgets::{Paragraph, Widget};
 use super::brand::{self, LOGO, LOGO_WIDTH, PADDY_HEIGHT, PADDY_WIDTH};
 use super::theme::Theme;
 
-pub const DURATION: Duration = Duration::from_millis(2300);
-const TROT: Duration = Duration::from_millis(700);
-const WIPE_START: Duration = Duration::from_millis(350);
-const WIPE: Duration = Duration::from_millis(700);
-const TAGLINE_AT: Duration = Duration::from_millis(1150);
-const BLINK_AT: Duration = Duration::from_millis(1600);
+pub const DURATION: Duration = Duration::from_millis(3000);
+const TROT: Duration = Duration::from_millis(900);
+const WIPE_START: Duration = Duration::from_millis(500);
+const WIPE: Duration = Duration::from_millis(900);
+const TAGLINE_AT: Duration = Duration::from_millis(1500);
+const BLINK_AT: Duration = Duration::from_millis(2200);
 const BLINK: Duration = Duration::from_millis(140);
 
 const TAGLINE: &str = "A terminal workspace for your dev servers";

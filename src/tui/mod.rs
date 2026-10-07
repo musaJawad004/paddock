@@ -46,6 +46,10 @@ pub struct Options {
     pub splash: bool,
     /// Shown once at start-up, e.g. why the config could not be read.
     pub notice: Option<String>,
+    /// Quitting stops the processes, so the TUI asks before quitting.
+    pub stops_on_quit: bool,
+    /// Suggested when adding a project.
+    pub cwd: std::path::PathBuf,
 }
 
 /// Takes over the terminal until the user quits.
@@ -67,7 +71,8 @@ async fn event_loop(
     mut client: ClientEnd,
     options: Options,
 ) -> io::Result<()> {
-    let mut app = App::new(options.config, options.source, options.splash);
+    let mut app = App::new(options.config, options.source, options.splash)
+        .with_backend(options.stops_on_quit, options.cwd);
     if let Some(notice) = options.notice {
         app.notify(NoticeKind::Error, notice);
     }
@@ -75,6 +80,10 @@ async fn event_loop(
     let mut frame = tokio::time::interval(FRAME);
     let (done_tx, mut done_rx) = mpsc::channel::<Done>(16);
     let mut backend_open = true;
+    // Closing the terminal window or `kill` ends the loop normally, so the
+    // terminal is restored and the processes are stopped.
+    let mut hangup = unix_signal(tokio::signal::unix::SignalKind::hangup())?;
+    let mut terminate = unix_signal(tokio::signal::unix::SignalKind::terminate())?;
 
     while !app.should_quit() {
         let effect = tokio::select! {
@@ -105,6 +114,8 @@ async fn event_loop(
                 }
                 Done::Saved(result) => app.update(Msg::Saved(result)),
             },
+            _ = hangup.recv() => break,
+            _ = terminate.recv() => break,
             _ = frame.tick() => {
                 app.update(Msg::Tick(Instant::now()));
                 if app.take_dirty() {
@@ -147,6 +158,10 @@ async fn event_loop(
         }
     }
     Ok(())
+}
+
+fn unix_signal(kind: tokio::signal::unix::SignalKind) -> io::Result<tokio::signal::unix::Signal> {
+    tokio::signal::unix::signal(kind)
 }
 
 /// Cuts or pads `text` to exactly `width` terminal columns, counting wide

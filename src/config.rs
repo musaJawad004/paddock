@@ -10,7 +10,10 @@
 //!
 //! Unknown keys are ignored, so an older Paddock can read a newer config.
 //! Saving writes a temp file and renames it, so a crash never leaves half a
-//! config behind.
+//! config behind. Two parts of Paddock write the file (the TUI saves the UI
+//! settings, the supervisor saves projects and process overrides), so every
+//! write goes through `update`: read the file, change one part, write it
+//! back, all under one lock.
 //!
 //! ```toml
 //! [ui]
@@ -20,6 +23,11 @@
 //! [keys]
 //! start = "s"
 //! quit = ["q", "ctrl+q"]
+//!
+//! # Per process, keyed by "<project folder>#<process name>".
+//! [processes."~/Projects/shop#web"]
+//! port = 3100
+//! group = "frontends"
 //! ```
 
 use std::collections::BTreeMap;
@@ -36,7 +44,33 @@ pub struct Config {
     pub ui: Ui,
     /// Action name to one key or a list of keys, e.g. `start = "s"`.
     /// Actions not listed keep their default keys.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub keys: BTreeMap<String, Keys>,
+    /// Changes the user made to detected processes.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub processes: BTreeMap<String, ProcessOverride>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProcessOverride {
+    /// Port to run on instead of the detected one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub port: Option<u16>,
+    /// Project to show the process under instead of its own folder.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+}
+
+impl ProcessOverride {
+    pub fn is_empty(&self) -> bool {
+        self.port.is_none() && self.group.is_none()
+    }
+}
+
+/// The key for `Config::processes`.
+pub fn process_key(project: &Path, name: &str) -> String {
+    format!("{}#{name}", project.display())
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -103,6 +137,32 @@ pub fn load() -> Result<Config, ConfigError> {
 
 pub fn save(config: &Config) -> Result<(), ConfigError> {
     save_to(config, &path()?)
+}
+
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Reads the current file, applies `change`, writes it back. Returns the
+/// config as saved.
+pub fn update(change: impl FnOnce(&mut Config)) -> Result<Config, ConfigError> {
+    update_at(&path()?, change)
+}
+
+pub fn update_at(path: &Path, change: impl FnOnce(&mut Config)) -> Result<Config, ConfigError> {
+    let _guard = WRITE_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut config = load_from(path)?;
+    change(&mut config);
+    save_to(&config, path)?;
+    Ok(config)
+}
+
+/// `~/x` to `$HOME/x`. Other paths are returned as they are.
+pub fn expand_home(path: &Path) -> PathBuf {
+    match (path.strip_prefix("~"), std::env::var_os("HOME")) {
+        (Ok(rest), Some(home)) => Path::new(&home).join(rest),
+        _ => path.to_owned(),
+    }
 }
 
 pub fn load_from(path: &Path) -> Result<Config, ConfigError> {
@@ -177,6 +237,31 @@ mod tests {
         let config = load_from(&path).unwrap();
         assert_eq!(config.ui.theme, "dracula");
         assert!(config.ui.splash);
+    }
+
+    #[test]
+    fn update_changes_one_part_and_keeps_the_rest() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("config.toml");
+        update_at(&path, |c| c.ui.theme = "nord".into()).unwrap();
+        update_at(&path, |c| {
+            c.processes.insert(
+                process_key(Path::new("/p/shop"), "web"),
+                ProcessOverride {
+                    port: Some(3100),
+                    group: None,
+                },
+            );
+        })
+        .unwrap();
+        let config = load_from(&path).unwrap();
+        assert_eq!(config.ui.theme, "nord");
+        assert_eq!(config.processes["/p/shop#web"].port, Some(3100));
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(
+            !text.contains("group"),
+            "empty fields are not written:\n{text}"
+        );
     }
 
     #[test]

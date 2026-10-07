@@ -137,6 +137,14 @@ projects = ["~/Projects/lumo", "~/Projects/heron"]
 scrollback = 10000
 ```
 
+Overrides made in the TUI (port, project) are saved in the same file:
+
+```toml
+[processes."/Users/me/Projects/shop#web"]
+port = 3100
+group = "frontends"
+```
+
 Per project, `paddock.toml` (optional):
 
 ```toml
@@ -204,7 +212,7 @@ Short records of choices that are expensive to reverse.
 
 | Version | Scope |
 |---|---|
-| v0.1 | Add folders, detect commands, start and stop, live logs, sidebar. Supervisor in-process. |
+| v0.1 (done) | Add folders, detect commands, start, stop, kill, restart, live logs, ports, CPU and memory, port and project overrides. Supervisor in-process. |
 | v0.2 | Daemon over a Unix socket. Close and reopen without stopping servers. |
 | v0.3 | Ports panel, kill strays with confirmation, open in browser, CPU and RAM. |
 | v0.4 | Start all with `depends_on`, log search, crash notifications, Expo QR in the log pane. |

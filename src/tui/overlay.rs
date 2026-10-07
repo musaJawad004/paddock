@@ -22,7 +22,7 @@ pub const NEW_PROJECT: &str = "+ New project...";
 pub enum Overlay {
     Help,
     Settings(Settings),
-    Confirm { message: String, request: Request },
+    Confirm { message: String, then: Confirmed },
     Input(Input),
     Picker(Picker),
 }
@@ -38,6 +38,13 @@ pub struct Input {
 pub enum InputPurpose {
     Port(ProcessId),
     NewProject(ProcessId),
+    AddProject,
+}
+
+/// What a yes in a confirmation does.
+pub enum Confirmed {
+    Send(Request),
+    Quit,
 }
 
 pub struct Picker {
@@ -53,10 +60,16 @@ impl App {
         let (keep, effect) = match overlay {
             Overlay::Help => (None, None),
             Overlay::Settings(settings) => self.on_settings_key(settings, key),
-            Overlay::Confirm { message, request } => match key.code {
-                KeyCode::Char('y' | 'Y') | KeyCode::Enter => (None, Some(Effect::Send(request))),
+            Overlay::Confirm { message, then } => match key.code {
+                KeyCode::Char('y' | 'Y') | KeyCode::Enter => match then {
+                    Confirmed::Send(request) => (None, Some(Effect::Send(request))),
+                    Confirmed::Quit => {
+                        self.quit_now();
+                        (None, None)
+                    }
+                },
                 KeyCode::Char('n' | 'N') | KeyCode::Esc => (None, None),
-                _ => (Some(Overlay::Confirm { message, request }), None),
+                _ => (Some(Overlay::Confirm { message, then }), None),
             },
             Overlay::Input(input) => on_input_key(input, key),
             Overlay::Picker(picker) => self.on_picker_key(picker, key),
@@ -109,10 +122,11 @@ fn on_input_key(mut input: Input, key: KeyEvent) -> (Option<Overlay>, Option<Eff
         KeyCode::Backspace => {
             input.value.pop();
         }
-        KeyCode::Char(c) if input.value.chars().count() < 40 => {
+        KeyCode::Char(c) if input.value.chars().count() < 400 => {
             let allowed = match input.purpose {
                 InputPurpose::Port(_) => c.is_ascii_digit(),
                 InputPurpose::NewProject(_) => !c.is_control() && c != '/',
+                InputPurpose::AddProject => !c.is_control(),
             };
             if allowed {
                 input.value.push(c);
@@ -146,6 +160,13 @@ fn submit(input: &Input) -> Result<Request, String> {
                 project: name.to_owned(),
             })
         }
+        InputPurpose::AddProject => {
+            let path = input.value.trim();
+            if path.is_empty() {
+                return Err("Type the folder to add.".into());
+            }
+            Ok(Request::AddProject(path.into()))
+        }
     }
 }
 
@@ -172,7 +193,7 @@ pub fn render(app: &App, overlay: &Overlay, area: Rect, buf: &mut Buffer) {
                 Line::raw(""),
                 Line::from(vec![
                     Span::styled(" > ", theme.accent()),
-                    Span::styled(input.value.clone(), theme.text()),
+                    Span::styled(tail(&input.value, 48), theme.text()),
                     Span::styled("█", theme.accent()),
                 ]),
                 Line::raw(""),
@@ -223,4 +244,14 @@ pub fn centered(area: Rect, width: u16, height: u16) -> Rect {
         .flex(Flex::Center)
         .areas(popup);
     popup
+}
+
+/// The end of `text`, so the cursor end of a long path stays visible.
+fn tail(text: &str, max: usize) -> String {
+    let count = text.chars().count();
+    if count <= max {
+        return text.to_owned();
+    }
+    let rest: String = text.chars().skip(count - max + 1).collect();
+    format!("…{rest}")
 }

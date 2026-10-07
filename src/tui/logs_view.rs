@@ -15,10 +15,10 @@ use ratatui::widgets::{
     Block, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, StatefulWidget, Widget,
 };
 
-use super::ansi;
 use super::app::{App, Focus};
 use super::keys::Action;
 use super::theme::Theme;
+use super::{ansi, brand};
 
 pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
     let theme = app.theme;
@@ -29,10 +29,7 @@ pub fn render(app: &App, area: Rect, buf: &mut Buffer) {
         theme.border()
     };
     let Some(process) = app.selected_process() else {
-        Paragraph::new("No projects yet.")
-            .style(theme.dim())
-            .block(Block::bordered().border_style(border))
-            .render(area, buf);
+        render_welcome(app, Block::bordered().border_style(border), area, buf);
         return;
     };
 
@@ -154,4 +151,37 @@ fn guess_style(raw: &str, theme: Theme) -> Style {
     } else {
         Style::new()
     }
+}
+
+/// Shown until the first project is added.
+fn render_welcome(app: &App, block: Block, area: Rect, buf: &mut Buffer) {
+    let theme = app.theme;
+    let add = app.keymap.first(Action::AddProject);
+    let mut lines = vec![Line::raw("")];
+    lines.extend(brand::paddy(theme, false).into_iter().map(|l| l.centered()));
+    lines.extend([
+        Line::raw(""),
+        Line::styled("No projects yet", theme.title()).centered(),
+        Line::raw(""),
+        Line::from(vec![
+            Span::styled("Press ", theme.dim()),
+            Span::styled(add, theme.key()),
+            Span::styled(" to add a project folder,", theme.dim()),
+        ])
+        .centered(),
+        Line::from(vec![
+            Span::styled("or run ", theme.dim()),
+            Span::styled("paddock add <folder>", theme.accent()),
+            Span::styled(" in a terminal.", theme.dim()),
+        ])
+        .centered(),
+        Line::raw(""),
+        Line::styled(
+            "Paddock finds what to run in package.json, Cargo.toml,",
+            theme.dim(),
+        )
+        .centered(),
+        Line::styled("compose.yaml, a Procfile or paddock.toml.", theme.dim()).centered(),
+    ]);
+    Paragraph::new(lines).block(block).render(area, buf);
 }

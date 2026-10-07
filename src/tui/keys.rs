@@ -41,13 +41,15 @@ pub enum Action {
     ScrollUp,
     ScrollDown,
     Follow,
+    AddProject,
+    RemoveProject,
     Settings,
     Help,
     Quit,
 }
 
 impl Action {
-    pub const ALL: [Action; 20] = [
+    pub const ALL: [Action; 22] = [
         Action::Up,
         Action::Down,
         Action::NextPane,
@@ -65,6 +67,8 @@ impl Action {
         Action::ScrollUp,
         Action::ScrollDown,
         Action::Follow,
+        Action::AddProject,
+        Action::RemoveProject,
         Action::Settings,
         Action::Help,
         Action::Quit,
@@ -90,6 +94,8 @@ impl Action {
             Action::ScrollUp => "scroll_up",
             Action::ScrollDown => "scroll_down",
             Action::Follow => "follow",
+            Action::AddProject => "add_project",
+            Action::RemoveProject => "remove_project",
             Action::Settings => "settings",
             Action::Help => "help",
             Action::Quit => "quit",
@@ -115,6 +121,8 @@ impl Action {
             Action::ScrollUp => "page up",
             Action::ScrollDown => "page down",
             Action::Follow => "jump to newest line",
+            Action::AddProject => "add a project folder",
+            Action::RemoveProject => "remove project from list",
             Action::Settings => "settings",
             Action::Help => "help",
             Action::Quit => "quit",
@@ -140,6 +148,8 @@ impl Action {
             Action::ScrollUp => &["pgup", "u"],
             Action::ScrollDown => &["pgdn", "d"],
             Action::Follow => &["end", "G"],
+            Action::AddProject => &["a"],
+            Action::RemoveProject => &["D"],
             Action::Settings => &[","],
             Action::Help => &["?"],
             Action::Quit => &["q"],
