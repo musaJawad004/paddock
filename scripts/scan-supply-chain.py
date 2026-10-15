@@ -32,6 +32,13 @@ import sys
 
 SIGNATURES = "scripts/scan-signatures.tsv"
 
+# Files that necessarily contain the strings this hunts for, and so cannot be
+# scanned without matching themselves. `scan-signatures.tsv` is the list; the
+# second is the sibling scanner added on 15 Oct, which repairs what this one
+# only reports. Kept deliberately short: every name here is a file nothing
+# checks, so it is the one place a payload could be parked.
+SELF = (SIGNATURES, ".github/scripts/malware_scan.py")
+
 SCAN_EXT = (
     ".rs", ".toml", ".py", ".sh", ".ps1", ".yml", ".yaml", ".json",
     ".js", ".cjs", ".mjs", ".ts", ".html", ".css", ".svg",
@@ -83,7 +90,7 @@ def scan_file(path, data, malware, network):
     if b"\0" in data[:4096]:
         return hits
     text = data.decode("utf-8", errors="ignore")
-    if path != SIGNATURES:
+    if path not in SELF:
         hits += [name for pattern, name in malware if pattern.search(text)]
     if path.endswith(".rs") and "/tests/" not in "/" + path:
         hits += [f"network code: {name}" for pattern, name in network if pattern.search(text)]
